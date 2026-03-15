@@ -1,9 +1,9 @@
-"""Configuration component for LLM provider selection."""
+"""Configuration module for LLM provider selection."""
 
 import os
 import json
 import requests
-import streamlit as st
+from typing import Optional, Dict, Any
 
 CONFIG_FILE = ".aestant_config.json"
 
@@ -23,67 +23,36 @@ def load_config() -> dict:
     return {}
 
 
-def save_config(config: dict):
+def save_config(config: dict) -> bool:
     """Save configuration to file.
     
     Args:
         config: Configuration dictionary to save
+        
+    Returns:
+        bool: True if saved successfully, False otherwise
     """
     try:
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=2)
-    except IOError as e:
-        st.error(f"Failed to save configuration: {e}")
+        return True
+    except IOError:
+        return False
 
 
-def initialize_session_state():
-    """Initialize session state from saved config or defaults."""
-    saved_config = load_config()
+def get_default_config() -> dict:
+    """Get default configuration values.
     
-    # Provider selection (index)
-    if "llm_provider" not in st.session_state:
-        st.session_state.llm_provider = saved_config.get("llm_provider", 0)
-    
-    # Local URL preset
-    if "local_url_preset" not in st.session_state:
-        st.session_state.local_url_preset = saved_config.get("local_url_preset", "llama.cpp (port 8080)")
-    
-    # Local base URL
-    if "local_base_url" not in st.session_state:
-        st.session_state.local_base_url = saved_config.get("local_base_url", "http://localhost:1234/v1")
-    
-    # Model selection
-    if "llm_model" not in st.session_state:
-        st.session_state.llm_model = saved_config.get("llm_model", "")
-    
-    # Custom local model
-    if "custom_local_model" not in st.session_state:
-        st.session_state.custom_local_model = saved_config.get("custom_local_model", "")
-    
-    # API keys for cloud providers
-    for provider in ["openai", "anthropic", "google"]:
-        key_name = f"{provider}_api_key"
-        if key_name not in st.session_state:
-            st.session_state[key_name] = saved_config.get(key_name, "")
-
-
-def save_current_config():
-    """Save current session state to config file."""
-    config = {
-        "llm_provider": st.session_state.get("llm_provider", 0),
-        "local_url_preset": st.session_state.get("local_url_preset", "llama.cpp (port 8080)"),
-        "local_base_url": st.session_state.get("local_base_url", ""),
-        "llm_model": st.session_state.get("llm_model", ""),
-        "custom_local_model": st.session_state.get("custom_local_model", ""),
+    Returns:
+        dict: Default configuration dictionary
+    """
+    return {
+        "llm_provider": 0,
+        "local_url_preset": "llama.cpp (port 8080)",
+        "local_base_url": "http://localhost:1234/v1",
+        "llm_model": "",
+        "custom_local_model": "",
     }
-    
-    # Save API keys for cloud providers
-    for provider in ["openai", "anthropic", "google"]:
-        key_name = f"{provider}_api_key"
-        if st.session_state.get(key_name, ""):
-            config[key_name] = st.session_state[key_name]
-    
-    save_config(config)
 
 
 # Provider configurations with available models
@@ -179,183 +148,37 @@ def fetch_local_models(base_url: str) -> list:
         return []
 
 
-def render_config_sidebar():
-    """Render the configuration sidebar for LLM provider selection.
+def get_provider_by_index(index: int) -> str:
+    """Get provider name by index.
+    
+    Args:
+        index: Index of the provider
+        
+    Returns:
+        Provider name string
+    """
+    provider_options = list(PROVIDER_CONFIGS.keys())
+    if 0 <= index < len(provider_options):
+        return provider_options[index]
+    return "local"
+
+
+def get_provider_labels() -> list:
+    """Get display labels for all providers.
     
     Returns:
-        tuple: (provider, model) - Selected provider and model names
+        List of provider display names
     """
-    # Initialize session state from saved config
-    initialize_session_state()
+    return [PROVIDER_CONFIGS[p]["name"] for p in PROVIDER_CONFIGS.keys()]
+
+
+def update_environment_variables(provider: str, api_key: Optional[str] = None) -> None:
+    """Update environment variables based on selected provider and API key.
     
-    with st.sidebar:
-        st.header("LLM Configuration")
-        
-        # Save configuration button at the top
-        if st.button("💾 Save Configuration", key="save_config_button"):
-            save_current_config()
-            st.success("Configuration saved!")
-        
-        # Provider selection
-        provider_options = list(PROVIDER_CONFIGS.keys())
-        provider_labels = [PROVIDER_CONFIGS[p]["name"] for p in provider_options]
-        
-        selected_index = st.selectbox(
-            "Provider",
-            options=range(len(provider_labels)),
-            format_func=lambda x: provider_labels[x],
-            index=0,  # Default to Local
-            key="llm_provider"
-        )
-        provider = provider_options[selected_index]
-        
-        # Display provider description
-        st.info(PROVIDER_CONFIGS[provider]["description"])
-        
-        if provider == "local":
-            # For local models, show base URL input and model fetching
-            st.subheader("Local Server Configuration")
-            
-            # Base URL preset selection
-            default_urls = {
-                "llama.cpp (port 8080)": "http://localhost:8080/v1",
-                "Ollama (default)": "http://localhost:11434/v1",
-                "LM Studio (default)": "http://localhost:1234/v1",
-                "Custom": ""
-            }
-            
-            selected_url_key = st.selectbox(
-                "Server URL Preset",
-                options=list(default_urls.keys()),
-                index=0,
-                key="local_url_preset"
-            )
-            
-            base_url = st.text_input(
-                "Base URL",
-                value=default_urls[selected_url_key] if selected_url_key != "Custom" else "",
-                help="URL of your local LLM server with /v1 suffix (e.g., http://localhost:11434/v1)",
-                key="local_base_url"
-            )
-            
-            # Button to fetch available models
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.markdown("**Available Models**")
-            with col2:
-                if st.button("🔄 Refresh", key="refresh_models"):
-                    st.session_state.local_models_fetched = False
-            
-            # Fetch models if not already fetched or refresh requested
-            if "local_models_fetched" not in st.session_state:
-                st.session_state.local_models_fetched = False
-            
-            if not st.session_state.get("local_models_fetched", True):
-                with st.spinner(f"Fetching models from {base_url}..."):
-                    available_models = fetch_local_models(base_url)
-                    st.session_state.local_available_models = available_models
-                    st.session_state.local_models_fetched = True
-                
-                if available_models:
-                    st.success(f"Found {len(available_models)} model(s)")
-                else:
-                    st.warning("No models found. Enter a custom model name below.")
-            
-            # Get available models from session state or empty list
-            available_models = st.session_state.get("local_available_models", [])
-            
-            # Model selection with option to add custom
-            model_options = ["(enter custom model name)"] + available_models if available_models else []
-            model = st.selectbox(
-                "Select or enter model",
-                options=model_options,
-                index=0,
-                key="llm_model"
-            )
-            
-            # If user selected to enter custom, show text input
-            if model == "(enter custom model name)":
-                model = st.text_input(
-                    "Custom Model Name",
-                    placeholder="e.g., llava, llama3.2-vision, moondream2",
-                    key="custom_local_model"
-                )
-            
-            # Show detailed instructions for different local servers
-            with st.expander("Local Server Setup Instructions", expanded=False):
-                st.markdown("### llama.cpp")
-                st.code(
-                    """# Basic server on port 8080
-./build/bin/llama-server -m ./models/model.gguf --port 8080
-
-# With vision support (multimodal)
-./build/bin/llama-server \\
-    -m ./models/llava-model.gguf \\
-    -mm ./models/mmproj.gguf \\
-    --port 8080
-
-# Using Docker
-docker run -v /path/to/models:/models -p 8080:8080 \\
-    ghcr.io/ggml-org/llama.cpp:server \\
-    -m /models/model.gguf --port 8080""",
-                    language="bash"
-                )
-                st.markdown("**Base URL:** `http://localhost:8080/v1`")
-                
-                st.divider()
-                
-                st.markdown("### Ollama")
-                st.code(
-                    """# Start Ollama server (default port 11434)
-ollama serve
-
-# Run a vision model
-ollama run llava""",
-                    language="bash"
-                )
-                st.markdown("**Base URL:** `http://localhost:11434/v1`")
-                
-                st.divider()
-                
-                st.markdown("### LM Studio")
-                st.code(
-                    """# Start LM Studio and enable local server in settings
-# Default port is 1234""",
-                    language="bash"
-                )
-                st.markdown("**Base URL:** `http://localhost:1234/v1`")
-        else:
-            # For cloud providers, show model selection and API key input
-            config = PROVIDER_CONFIGS[provider]
-            model = st.selectbox(
-                "Model",
-                options=config["models"],
-                index=0,
-                key="llm_model"
-            )
-            
-            api_key_help = f"API key for {config['name']} (or set as environment variable)"
-            api_key = st.text_input(
-                "API Key",
-                type="password",
-                help=api_key_help,
-                key=f"{provider}_api_key"
-            )
-            if api_key:
-                os.environ[config["env_var"]] = api_key
-        
-        # Display current configuration
-        st.divider()
-        st.subheader("Current Settings")
-        
-        config_display = {
-            "provider": provider,
-            "model": model if model else "(not set)"
-        }
-        
-        if provider != "local":
-            config_display["api_key_set"] = bool(st.session_state.get(f"{provider}_api_key", ""))
-        else:
-            config_display["base_url"] = st.session_state.get("local_base_url", "")
-        
-        st.json(config_display)
+    Args:
+        provider: Provider name ('openai', 'anthropic', 'google')
+        api_key: API key to set in environment variable
+    """
+    if provider in PROVIDER_CONFIGS and api_key:
+        env_var = PROVIDER_CONFIGS[provider]["env_var"]
+        os.environ[env_var] = api_key
