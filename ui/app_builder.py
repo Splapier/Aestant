@@ -6,6 +6,7 @@ chatbot package.
 """
 
 import gradio as gr
+from typing import Any
 
 from chatbot import get_available_providers, get_provider
 from chatbot.chat_handler import (
@@ -14,6 +15,7 @@ from chatbot.chat_handler import (
     update_session_on_provider_change,
 )
 from chatbot.model_fetcher import fetch_models_from_endpoint, refresh_models_manually
+from chatbot.image_handler import scan_input_directory, load_images_from_directory
 
 
 def create_chat_app() -> gr.Blocks:
@@ -27,6 +29,7 @@ def create_chat_app() -> gr.Blocks:
     - Loading indicators and status messages
     - A chatbot component supporting streaming responses
     - State management for session persistence
+    - Image handling with interactive annotation via ImageEditor components
 
     Returns:
         gr.Blocks: The configured Gradio application interface.
@@ -35,15 +38,24 @@ def create_chat_app() -> gr.Blocks:
         >>> demo = create_chat_app()
         >>> demo.launch(server_name="127.0.0.1", server_port=7860)
     """
+    
+    def get_initial_images():
+        """Load initial images from input directory."""
+        return load_images_from_directory(max_count=2)
+    
     with gr.Blocks(title="LLM Chat Interface") as demo:
         # Initialize state for session persistence (defined inside Blocks context)
         session_state = gr.State({})  # Stores provider configuration
         chat_history = gr.State([])   # Stores conversation history
         models_state = gr.State([])   # Available models list
-
+        
         # State components to capture current config values from render context
         endpoint_state = gr.State(value="http://localhost:1234/v1")  # Current endpoint URL
         model_state = gr.State(value="")  # Currently selected model
+        
+        # Image state for tracking loaded images and editor outputs
+        image_paths_state = gr.State(value=[])  # List of loaded image paths
+        image_editors_state = gr.State(value=[])  # List of ImageEditor output values
 
         gr.Markdown("# 🤖 Modular LLM Chat Application")
 
@@ -205,6 +217,56 @@ def create_chat_app() -> gr.Blocks:
                 # Note: In Gradio 6.9.0, Chatbot does not accept a 'type' argument
                 chatbot_component = gr.Chatbot(label="Conversation", height=500)
 
+                # Image annotation section - pre-created components updated via event handlers
+                gr.Markdown("## 🖼️ Image Annotation (Optional)")
+                gr.Markdown(
+                    "Place images in the `input/` directory and draw rectangles to highlight regions of interest."
+                )
+                
+                with gr.Row():
+                    image_refresh_button = gr.Button("🖼️ Refresh Images", variant="secondary")
+                
+                # Status message for image loading
+                image_status_display = gr.Markdown(
+                    value="ℹ️ No images loaded. Click 'Refresh Images' or place files in `input/` directory.",
+                    label="Status"
+                )
+                
+                # Pre-create up to 2 ImageEditor components (hidden initially)
+                with gr.Row(visible=False) as image_editors_row:
+                    editor1_value = {
+                        "background": None,
+                        "layers": [],
+                        "composite": None,
+                    }
+                    editor2_value = {
+                        "background": None,
+                        "layers": [],
+                        "composite": None,
+                    }
+                    
+                    image_editor_1 = gr.ImageEditor(
+                        label="Image 1 (Draw rectangles)",
+                        type="numpy",
+                        brush=gr.Brush(
+                            default_color="#FF0000",
+                            colors=["#FF0000", "#00FF00", "#0000FF"]
+                        ),
+                        interactive=True,
+                        value=editor1_value,
+                    )
+                    
+                    image_editor_2 = gr.ImageEditor(
+                        label="Image 2 (Draw rectangles)",
+                        type="numpy",
+                        brush=gr.Brush(
+                            default_color="#FF0000",
+                            colors=["#FF0000", "#00FF00", "#0000FF"]
+                        ),
+                        interactive=True,
+                        value=editor2_value,
+                    )
+
                 # Input textbox for user messages
                 prompt_input = gr.Textbox(
                     label="Your Message",
@@ -229,36 +291,155 @@ def create_chat_app() -> gr.Blocks:
             outputs=session_state,
         )
 
-        # Event handler: Clear the chat history
+        # Event handler: Clear the chat history and image editors
+        def clear_all() -> tuple[str, list, gr.update, gr.update, gr.update, list]:
+            """Clear chat history and reset image state."""
+            return (
+                "",  # prompt_input
+                [],  # chatbot_component
+                gr.update(visible=False),  # image_editors_row
+                gr.update(value={"background": None, "layers": [], "composite": None}),  # editor1
+                gr.update(value={"background": None, "layers": [], "composite": None}),  # editor2
+                [],  # image_paths_state
+            )
+        
         clear_button.click(
-            fn=clear_chat,
+            fn=clear_all,
             inputs=None,
-            outputs=[prompt_input, chatbot_component],
+            outputs=[prompt_input, chatbot_component, image_editors_row, image_editor_1, image_editor_2, image_paths_state],
+        )
+
+        # Event handler: Refresh images from input directory and update ImageEditor components
+        def refresh_images_and_load() -> tuple[gr.update, gr.update, gr.update, list[str]]:
+            """Refresh the list of images from the input directory and load into editors.
+            
+            Returns:
+                Tuple of (row_visibility_update, editor1_value, editor2_value, paths_list).
+            """
+            from chatbot.image_handler import load_image_as_numpy
+            
+            paths = scan_input_directory(max_count=2)
+            
+            # Load images into numpy arrays
+            image_arrays = []
+            for path in paths:
+                arr = load_image_as_numpy(path)
+                if arr is not None:
+                    image_arrays.append(arr)
+            
+            # Prepare editor values
+            editor1_value = gr.update()
+            editor2_value = gr.update()
+            row_visible = False
+            
+            if len(image_arrays) >= 1:
+                editor1_value = gr.update(
+                    value={
+                        "background": image_arrays[0],
+                        "layers": [],
+                        "composite": image_arrays[0],
+                    },
+                    visible=True
+                )
+                row_visible = True
+                
+            if len(image_arrays) >= 2:
+                editor2_value = gr.update(
+                    value={
+                        "background": image_arrays[1],
+                        "layers": [],
+                        "composite": image_arrays[1],
+                    },
+                    visible=True
+                )
+            
+            return (
+                gr.update(visible=row_visible),  # Row visibility
+                editor1_value,  # Editor 1 value
+                editor2_value,  # Editor 2 value
+                paths,  # Paths list for state
+            )
+        
+        image_refresh_button.click(
+            fn=refresh_images_and_load,
+            inputs=None,
+            outputs=[image_editors_row, image_editor_1, image_editor_2, image_paths_state],
         )
 
         # Wire up send button and prompt submit for chat processing
         # Using state components (endpoint_state, model_state) to capture config values
+        # ImageEditor outputs are now captured directly from the pre-created components
+        
+        def process_message_with_editors(
+            text: str,
+            history: list,
+            provider: str,
+            endpoint: str,
+            model: str,
+            editor1: dict | None,
+            editor2: dict | None,
+        ):
+            """Process user message with image editors collected directly.
+            
+            Args:
+                text: User's text input.
+                history: Chat history state.
+                provider: Selected LLM provider.
+                endpoint: API endpoint URL.
+                model: Selected model name.
+                editor1: First ImageEditor output or None.
+                editor2: Second ImageEditor output or None.
+                
+            Yields:
+                Tuple of (cleared_input, updated_chat_history).
+            """
+            # Collect non-None image editor outputs
+            editors = []
+            if editor1 is not None and editor1.get("background") is not None:
+                editors.append(editor1)
+            if editor2 is not None and editor2.get("background") is not None:
+                editors.append(editor2)
+            
+            # DEBUG: Log the inputs to verify data flow
+            print(f"[DEBUG] process_message_with_editors called:")
+            print(f"  - text: {text[:50]}..." if len(text) > 50 else f"  - text: {text}")
+            print(f"  - history length: {len(history) if history else 0}")
+            print(f"  - provider: {provider}")
+            print(f"  - editors count: {len(editors)}")
+            
+            # Call the original process_user_message with collected editors
+            # Use yield from to properly forward generator values
+            result = process_user_message(text, history, provider, endpoint, model, editors)
+            print(f"[DEBUG] process_user_message returned: {type(result)}")
+            
+            for yielded_value in result:
+                print(f"[DEBUG] Yielding value type: {type(yielded_value)}, length: {len(yielded_value) if hasattr(yielded_value, '__len__') else 'N/A'}")
+                yield yielded_value
 
         send_button.click(
-            fn=process_user_message,
+            fn=process_message_with_editors,
             inputs=[
                 prompt_input,
                 chat_history,
                 provider_selector,
-                endpoint_state,  # Use state component for endpoint URL
-                model_state,  # Use state component for selected model
+                endpoint_state,
+                model_state,
+                image_editor_1,  # Direct input from ImageEditor component
+                image_editor_2,  # Direct input from ImageEditor component
             ],
             outputs=[prompt_input, chatbot_component],
         )
 
         prompt_input.submit(
-            fn=process_user_message,
+            fn=process_message_with_editors,
             inputs=[
                 prompt_input,
                 chat_history,
                 provider_selector,
-                endpoint_state,  # Use state component for endpoint URL
-                model_state,  # Use state component for selected model
+                endpoint_state,
+                model_state,
+                image_editor_1,  # Direct input from ImageEditor component
+                image_editor_2,  # Direct input from ImageEditor component
             ],
             outputs=[prompt_input, chatbot_component],
         )

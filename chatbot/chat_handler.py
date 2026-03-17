@@ -5,11 +5,13 @@ from LLM providers, and managing session state updates. It separates the chat
 handling logic from the UI layer for better testability and maintainability.
 """
 
-from typing import Generator, Tuple
+from typing import Generator, Tuple, Any
+import numpy as np
 
 import gradio as gr
 
 from chatbot.providers import get_provider
+from chatbot.image_handler import process_image_annotations, prepare_multimodal_payload
 
 
 def update_session_on_provider_change(
@@ -43,14 +45,16 @@ def process_user_message(
     provider_type: str,
     endpoint_url: str,
     model_name: str,
+    image_editors_value: list[Any] | None = None,
 ) -> Generator[Tuple[str, list[dict[str, str]]], None, None]:
     """Process a user message by adding it to history and generating a response.
 
     This function handles the complete chat flow:
     1. Clears the input textbox first for immediate feedback
     2. Adds the user's message to the conversation history
-    3. Creates or updates the provider with current configuration
-    4. Streams the model's response back to the interface
+    3. Processes any image annotations from ImageEditor components
+    4. Creates or updates the provider with current configuration
+    5. Streams the model's response back to the interface (with images if provided)
 
     Args:
         prompt_text: The text input from the user.
@@ -58,6 +62,9 @@ def process_user_message(
         provider_type: Currently selected provider type (e.g., "lmstudio").
         endpoint_url: Configured endpoint URL for the provider.
         model_name: Optional model name for the provider.
+        image_editors_value: Optional list of ImageEditor output dictionaries.
+                           Each dict has format: {"background": np.ndarray, 
+                                                "layers": [np.ndarray], ...}
 
     Yields:
         Tuple of (cleared_prompt_text, updated_chat_history) after each update.
@@ -79,6 +86,17 @@ def process_user_message(
     # Initialize history if empty or None
     updated_history = current_history.copy() if current_history else []
 
+    # Process image annotations if provided
+    annotated_images: list[np.ndarray] = []
+    
+    if image_editors_value:
+        # Prepare multimodal payload - this processes all editor outputs
+        _, annotated_images = prepare_multimodal_payload(
+            prompt_text, 
+            image_editors_value, 
+            min_area=100
+        )
+
     # Add user message to history
     updated_history.append({"role": "user", "content": prompt_text})
     yield "", updated_history
@@ -96,9 +114,11 @@ def process_user_message(
         # Add assistant message placeholder to history
         updated_history.append({"role": "assistant", "content": ""})
 
-        # Stream the response from the provider
+        # Stream the response from the provider (with images if available)
         full_response = ""
-        for chunk in provider.stream_chat(updated_history):
+        
+        # Call stream_chat with optional images parameter
+        for chunk in provider.stream_chat(updated_history, annotated_images):
             if chunk:
                 full_response += chunk
                 # Update the last message (assistant's) with accumulated content

@@ -7,8 +7,9 @@ supporting streaming chat completions via the OpenAI-compatible API endpoint.
 import json as json_module
 import requests
 from typing import Any
+import numpy as np
 
-from chatbot.providers.base import BaseProvider
+from chatbot.providers.base import BaseProvider, convert_messages_to_multimodal
 
 
 class LMStudioProvider(BaseProvider):
@@ -58,15 +59,24 @@ class LMStudioProvider(BaseProvider):
                 "URL must start with 'http://' or 'https://'."
             )
 
-    def stream_chat(self, messages: list[dict[str, str]]) -> Any:
+    def stream_chat(
+        self, 
+        messages: list[dict[str, str]], 
+        images: list[np.ndarray] | None = None
+    ) -> Any:
         """Generate a streaming response from LM Studio.
 
         Sends the chat history to the LM Studio server and yields partial
         responses as they are generated using Server-Sent Events (SSE).
+        
+        Supports multimodal inputs by converting images to base64 data URLs
+        and embedding them in the messages payload.
 
         Args:
             messages: List of message dictionaries with 'role' and 'content' keys.
                      Format: [{"role": "user", "content": "..."}, ...]
+            images: Optional list of numpy arrays (RGB format) representing images
+                   to include with the request for multimodal LLM support.
 
         Yields:
             str: Partial response content chunks as they are generated.
@@ -76,6 +86,9 @@ class LMStudioProvider(BaseProvider):
             requests.RequestException: For other HTTP-related errors.
             RuntimeError: If an unexpected error occurs during inference.
         """
+        # Convert messages to multimodal format if images are provided
+        processed_messages = convert_messages_to_multimodal(messages, images)
+        
         # Build the API request URL
         endpoint_url = self.config["endpoint_url"]
         api_url = f"{endpoint_url}/chat/completions"
@@ -83,7 +96,7 @@ class LMStudioProvider(BaseProvider):
         # Prepare the request payload
         payload = {
             "model": self.config.get("model_name", ""),
-            "messages": messages,
+            "messages": processed_messages,
             "stream": True,
         }
 

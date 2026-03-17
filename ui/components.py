@@ -6,6 +6,7 @@ ready to be used in the UI layout.
 """
 
 import gradio as gr
+from typing import Any
 
 from chatbot import get_available_providers
 
@@ -168,6 +169,76 @@ def create_action_buttons() -> tuple[gr.Button, gr.Button]:
     return create_send_button(), create_clear_button()
 
 
+def create_image_editor_row(
+    image_arrays: list[Any] | None = None, 
+    max_images: int = 2
+) -> tuple[gr.ImageEditor, ...]:
+    """Create a row of ImageEditor components for user annotation.
+
+    This function creates one or more Gradio ImageEditor components configured
+    for drawing rectangles on images using the brush tool. Each editor is set up
+    with type="numpy" for direct array manipulation and includes brush tools
+    with predefined colors (red, green, blue).
+
+    Args:
+        image_arrays: Optional list of numpy arrays to use as initial backgrounds.
+                     If None or empty, editors will be created without images.
+        max_images: Maximum number of editors to display (default: 2).
+                   
+    Returns:
+        Tuple of gr.ImageEditor components configured for annotation.
+
+    Example:
+        >>> editors = create_image_editor_row([img1, img2])
+        >>> assert len(editors) == 2
+    """
+    # Determine how many editors to create
+    num_editors = min(
+        max_images, 
+        len(image_arrays) if image_arrays else 0,
+        max_images  # Always respect max limit
+    )
+    
+    # If no images provided but we want to show placeholders, use max_images
+    if not image_arrays or len(image_arrays) == 0:
+        num_editors = 0
+    
+    editors = []
+    
+    for i in range(num_editors):
+        editor = gr.ImageEditor(
+            label=f"Image {i + 1} (Draw rectangles)",
+            type="numpy",
+            tools=["crop", "brush", "eraser"],
+            brush=gr.Brush(
+                default_color="#FF0000", 
+                colors=["#FF0000", "#00FF00", "#0000FF"]
+            ),
+            interactive=True,
+            value={
+                "background": image_arrays[i] if i < len(image_arrays) else None,
+                "layers": [],
+                "composite": image_arrays[i] if i < len(image_arrays) else None,
+            } if image_arrays and i < len(image_arrays) else None,
+        )
+        editors.append(editor)
+    
+    return tuple(editors) if editors else ()
+
+
+def create_image_refresh_button() -> gr.Button:
+    """Create refresh button for reloading images from input directory.
+
+    Returns:
+        gr.Button: Configured secondary variant button for refreshing images.
+
+    Example:
+        >>> button = create_image_refresh_button()
+        >>> assert "Refresh" in button.value
+    """
+    return gr.Button("🖼️ Refresh Images", variant="secondary")
+
+
 __all__ = [
     "create_provider_selector",
     "create_endpoint_input",
@@ -179,4 +250,6 @@ __all__ = [
     "create_send_button",
     "create_clear_button",
     "create_action_buttons",
+    "create_image_editor_row",
+    "create_image_refresh_button",
 ]
