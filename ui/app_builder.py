@@ -400,21 +400,9 @@ def create_chat_app() -> gr.Blocks:
             if editor2 is not None and editor2.get("background") is not None:
                 editors.append(editor2)
             
-            # DEBUG: Log the inputs to verify data flow
-            print(f"[DEBUG] process_message_with_editors called:")
-            print(f"  - text: {text[:50]}..." if len(text) > 50 else f"  - text: {text}")
-            print(f"  - history length: {len(history) if history else 0}")
-            print(f"  - provider: {provider}")
-            print(f"  - editors count: {len(editors)}")
-            
             # Call the original process_user_message with collected editors
-            # Use yield from to properly forward generator values
-            result = process_user_message(text, history, provider, endpoint, model, editors)
-            print(f"[DEBUG] process_user_message returned: {type(result)}")
-            
-            for yielded_value in result:
-                print(f"[DEBUG] Yielding value type: {type(yielded_value)}, length: {len(yielded_value) if hasattr(yielded_value, '__len__') else 'N/A'}")
-                yield yielded_value
+            # Use yield from to properly forward generator values for streaming
+            yield from process_user_message(text, history, provider, endpoint, model, editors)
 
         send_button.click(
             fn=process_message_with_editors,
