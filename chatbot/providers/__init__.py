@@ -19,6 +19,12 @@ Usage Example:
 from chatbot.providers.base import BaseProvider
 from chatbot.providers.lmstudio_provider import LMStudioProvider
 from chatbot.providers.llamacpp_provider import LlamaCppProvider
+from chatbot.config_manager import (
+    load_provider_config,
+    save_provider_config,
+    revert_field_to_default,
+    has_saved_config,
+)
 
 # Provider registry mapping provider type strings to their classes
 PROVIDER_REGISTRY: dict[str, type[BaseProvider]] = {
@@ -48,8 +54,7 @@ def get_provider(provider_type: str, config: dict) -> BaseProvider:
     if provider_type not in PROVIDER_REGISTRY:
         available = ", ".join(PROVIDER_REGISTRY.keys())
         raise ValueError(
-            f"Unknown provider type '{provider_type}'. "
-            f"Available providers: {available}"
+            f"Unknown provider type '{provider_type}'. Available providers: {available}"
         )
 
     return PROVIDER_REGISTRY[provider_type](config)
@@ -75,4 +80,8 @@ __all__ = [
     "get_provider",
     "get_available_providers",
     "PROVIDER_REGISTRY",
+    "load_provider_config",
+    "save_provider_config",
+    "revert_field_to_default",
+    "has_saved_config",
 ]

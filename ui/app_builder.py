@@ -16,6 +16,10 @@ from chatbot.chat_handler import (
 )
 from chatbot.model_fetcher import fetch_models_from_endpoint, refresh_models_manually
 from chatbot.image_handler import scan_input_directory, load_images_from_directory
+from chatbot.config_manager import (
+    load_provider_config,
+    save_provider_config,
+)
 
 
 def create_chat_app() -> gr.Blocks:
@@ -38,21 +42,23 @@ def create_chat_app() -> gr.Blocks:
         >>> demo = create_chat_app()
         >>> demo.launch(server_name="127.0.0.1", server_port=7860)
     """
-    
+
     def get_initial_images():
         """Load initial images from input directory."""
         return load_images_from_directory(max_count=2)
-    
+
     with gr.Blocks(title="LLM Chat Interface") as demo:
         # Initialize state for session persistence (defined inside Blocks context)
         session_state = gr.State({})  # Stores provider configuration
-        chat_history = gr.State([])   # Stores conversation history
-        models_state = gr.State([])   # Available models list
-        
+        chat_history = gr.State([])  # Stores conversation history
+        models_state = gr.State([])  # Available models list
+
         # State components to capture current config values from render context
-        endpoint_state = gr.State(value="http://localhost:1234/v1")  # Current endpoint URL
+        endpoint_state = gr.State(
+            value="http://localhost:1234/v1"
+        )  # Current endpoint URL
         model_state = gr.State(value="")  # Currently selected model
-        
+
         # Image state for tracking loaded images and editor outputs
         image_paths_state = gr.State(value=[])  # List of loaded image paths
         image_editors_state = gr.State(value=[])  # List of ImageEditor output values
@@ -94,6 +100,9 @@ def create_chat_app() -> gr.Blocks:
                         # show basic fields with empty values
                         defaults = {"endpoint_url": "", "model_name": ""}
 
+                    # Load saved config or use defaults
+                    loaded_config = load_provider_config(selected_provider, defaults)
+
                     gr.Markdown(
                         f"### {selected_provider.replace('cpp', '.cpp').title()} Configuration",
                         key=f"{selected_provider}-config-title",
@@ -107,7 +116,7 @@ def create_chat_app() -> gr.Blocks:
                         )
                         endpoint_input = gr.Textbox(
                             label="Endpoint URL",
-                            value=defaults.get("endpoint_url", "http://localhost:1234/v1"),
+                            value=loaded_config.get("endpoint_url"),
                             placeholder="e.g., http://localhost:1234/v1",
                             info="Model list refreshes automatically on change",
                             key="lmstudio-endpoint",
@@ -120,7 +129,7 @@ def create_chat_app() -> gr.Blocks:
                         )
                         endpoint_input = gr.Textbox(
                             label="Endpoint URL",
-                            value=defaults.get("endpoint_url", "http://localhost:8080"),
+                            value=loaded_config.get("endpoint_url"),
                             placeholder="e.g., http://localhost:8080",
                             info="Model list refreshes automatically on change",
                             key="llamacpp-endpoint",
@@ -129,7 +138,7 @@ def create_chat_app() -> gr.Blocks:
                         # Fallback for unknown providers
                         endpoint_input = gr.Textbox(
                             label="Endpoint URL",
-                            value="",
+                            value=loaded_config.get("endpoint_url", ""),
                             placeholder="Enter endpoint URL",
                             key=f"{selected_provider}-endpoint",
                         )
@@ -138,6 +147,7 @@ def create_chat_app() -> gr.Blocks:
                     model_dropdown = gr.Dropdown(
                         choices=[],  # Populated via fetch_models_from_endpoint
                         label="Select Model",
+                        value=loaded_config.get("model_name", ""),
                         interactive=True,
                         allow_custom_value=True,  # Allow manual entry if needed
                         info="Leave empty to use default loaded model",
@@ -151,12 +161,29 @@ def create_chat_app() -> gr.Blocks:
                         key=f"{selected_provider}-status",
                     )
 
+                    # Action buttons row (Save, Revert)
+                    with gr.Row():
+                        save_button = gr.Button(
+                            "💾 Save Config",
+                            variant="primary",
+                            key=f"{selected_provider}-save",
+                        )
+                        revert_button = gr.Button(
+                            "↩️ Revert to Defaults",
+                            variant="secondary",
+                            key=f"{selected_provider}-revert",
+                        )
+
                     # Refresh button for manual update
                     refresh_button = gr.Button(
-                        "🔄 Refresh Models", variant="secondary", key=f"{selected_provider}-refresh"
+                        "🔄 Refresh Models",
+                        variant="secondary",
+                        key=f"{selected_provider}-refresh",
                     )
 
-                    def update_endpoint_state(endpoint_val: str, current_state: str) -> str:
+                    def update_endpoint_state(
+                        endpoint_val: str, current_state: str
+                    ) -> str:
                         """Update the endpoint state with current value.
 
                         Args:
@@ -166,7 +193,9 @@ def create_chat_app() -> gr.Blocks:
                         Returns:
                             Updated endpoint URL.
                         """
-                        return endpoint_val if endpoint_val else "http://localhost:1234/v1"
+                        return (
+                            endpoint_val if endpoint_val else "http://localhost:1234/v1"
+                        )
 
                     def update_model_state(
                         model_val: str | None, current_state: str
@@ -182,6 +211,57 @@ def create_chat_app() -> gr.Blocks:
                         """
                         return model_val if model_val else ""
 
+                    def save_config_handler(
+                        endpoint_val: str, model_val: str, provider: str
+                    ) -> tuple[str, str]:
+                        """Handle saving configuration to disk.
+
+                        Args:
+                            endpoint_val: Current endpoint URL value.
+                            model_val: Current model name value.
+                            provider: Selected provider type.
+
+                        Returns:
+                            Tuple of (status_message, empty_string).
+                        """
+                        config = {
+                            "endpoint_url": endpoint_val.strip()
+                            if endpoint_val
+                            else "",
+                            "model_name": model_val.strip() if model_val else "",
+                        }
+
+                        success = save_provider_config(provider, config)
+
+                        if success:
+                            gr.Info("Configuration saved successfully!")
+                            return f"✅ Configuration saved for {provider}", ""
+                        else:
+                            gr.Error("Failed to save configuration")
+                            return f"❌ Failed to save configuration for {provider}", ""
+
+                    def revert_config_handler(provider: str) -> tuple[str, str, str]:
+                        """Handle reverting configuration to defaults.
+
+                        Args:
+                            provider: Selected provider type.
+
+                        Returns:
+                            Tuple of (endpoint_value, model_value, status_message).
+                        """
+                        try:
+                            provider_instance = get_provider(provider, {})
+                            defaults = provider_instance.get_config_defaults()
+                        except ValueError:
+                            defaults = {"endpoint_url": "", "model_name": ""}
+
+                        gr.Info("Configuration reverted to defaults")
+                        return (
+                            defaults.get("endpoint_url", ""),
+                            defaults.get("model_name", ""),
+                            f"↩️ Configuration reverted to defaults for {provider}",
+                        )
+
                     # Wire up auto-fetch on endpoint change (within render context)
                     endpoint_input.change(
                         fn=lambda e, p, m: fetch_models_from_endpoint(e, p, m),
@@ -196,12 +276,39 @@ def create_chat_app() -> gr.Blocks:
                     # Wire up manual refresh button click (within render context)
                     refresh_button.click(
                         fn=refresh_models_manually,
-                        inputs=[provider_selector, endpoint_input, models_state, model_dropdown],
+                        inputs=[
+                            provider_selector,
+                            endpoint_input,
+                            models_state,
+                            model_dropdown,
+                        ],
                         outputs=[models_state, status_display, model_dropdown],
                     ).then(
                         fn=update_endpoint_state,
                         inputs=[endpoint_input, endpoint_state],
                         outputs=endpoint_state,
+                    )
+
+                    # Wire up save button click (within render context)
+                    save_button.click(
+                        fn=save_config_handler,
+                        inputs=[endpoint_input, model_dropdown, provider_selector],
+                        outputs=[status_display, prompt_input],
+                    )
+
+                    # Wire up revert button click (within render context)
+                    revert_button.click(
+                        fn=revert_config_handler,
+                        inputs=[provider_selector],
+                        outputs=[endpoint_input, model_dropdown, status_display],
+                    ).then(
+                        fn=update_endpoint_state,
+                        inputs=[endpoint_input, endpoint_state],
+                        outputs=endpoint_state,
+                    ).then(
+                        fn=update_model_state,
+                        inputs=[model_dropdown, model_state],
+                        outputs=model_state,
                     )
 
                     # Also sync when model dropdown changes
@@ -222,16 +329,18 @@ def create_chat_app() -> gr.Blocks:
                 gr.Markdown(
                     "Place images in the `input/` directory and draw rectangles to highlight regions of interest."
                 )
-                
+
                 with gr.Row():
-                    image_refresh_button = gr.Button("🖼️ Refresh Images", variant="secondary")
-                
+                    image_refresh_button = gr.Button(
+                        "🖼️ Refresh Images", variant="secondary"
+                    )
+
                 # Status message for image loading
                 image_status_display = gr.Markdown(
                     value="ℹ️ No images loaded. Click 'Refresh Images' or place files in `input/` directory.",
-                    label="Status"
+                    label="Status",
                 )
-                
+
                 # Pre-create up to 2 ImageEditor components (hidden initially)
                 with gr.Row(visible=False) as image_editors_row:
                     editor1_value = {
@@ -244,24 +353,24 @@ def create_chat_app() -> gr.Blocks:
                         "layers": [],
                         "composite": None,
                     }
-                    
+
                     image_editor_1 = gr.ImageEditor(
                         label="Image 1 (Draw rectangles)",
                         type="numpy",
                         brush=gr.Brush(
                             default_color="#FF0000",
-                            colors=["#FF0000", "#00FF00", "#0000FF"]
+                            colors=["#FF0000", "#00FF00", "#0000FF"],
                         ),
                         interactive=True,
                         value=editor1_value,
                     )
-                    
+
                     image_editor_2 = gr.ImageEditor(
                         label="Image 2 (Draw rectangles)",
                         type="numpy",
                         brush=gr.Brush(
                             default_color="#FF0000",
-                            colors=["#FF0000", "#00FF00", "#0000FF"]
+                            colors=["#FF0000", "#00FF00", "#0000FF"],
                         ),
                         interactive=True,
                         value=editor2_value,
@@ -298,40 +407,53 @@ def create_chat_app() -> gr.Blocks:
                 "",  # prompt_input
                 [],  # chatbot_component
                 gr.update(visible=False),  # image_editors_row
-                gr.update(value={"background": None, "layers": [], "composite": None}),  # editor1
-                gr.update(value={"background": None, "layers": [], "composite": None}),  # editor2
+                gr.update(
+                    value={"background": None, "layers": [], "composite": None}
+                ),  # editor1
+                gr.update(
+                    value={"background": None, "layers": [], "composite": None}
+                ),  # editor2
                 [],  # image_paths_state
             )
-        
+
         clear_button.click(
             fn=clear_all,
             inputs=None,
-            outputs=[prompt_input, chatbot_component, image_editors_row, image_editor_1, image_editor_2, image_paths_state],
+            outputs=[
+                prompt_input,
+                chatbot_component,
+                image_editors_row,
+                image_editor_1,
+                image_editor_2,
+                image_paths_state,
+            ],
         )
 
         # Event handler: Refresh images from input directory and update ImageEditor components
-        def refresh_images_and_load() -> tuple[gr.update, gr.update, gr.update, list[str]]:
+        def refresh_images_and_load() -> tuple[
+            gr.update, gr.update, gr.update, list[str]
+        ]:
             """Refresh the list of images from the input directory and load into editors.
-            
+
             Returns:
                 Tuple of (row_visibility_update, editor1_value, editor2_value, paths_list).
             """
             from chatbot.image_handler import load_image_as_numpy
-            
+
             paths = scan_input_directory(max_count=2)
-            
+
             # Load images into numpy arrays
             image_arrays = []
             for path in paths:
                 arr = load_image_as_numpy(path)
                 if arr is not None:
                     image_arrays.append(arr)
-            
+
             # Prepare editor values
             editor1_value = gr.update()
             editor2_value = gr.update()
             row_visible = False
-            
+
             if len(image_arrays) >= 1:
                 editor1_value = gr.update(
                     value={
@@ -339,10 +461,10 @@ def create_chat_app() -> gr.Blocks:
                         "layers": [],
                         "composite": image_arrays[0],
                     },
-                    visible=True
+                    visible=True,
                 )
                 row_visible = True
-                
+
             if len(image_arrays) >= 2:
                 editor2_value = gr.update(
                     value={
@@ -350,26 +472,31 @@ def create_chat_app() -> gr.Blocks:
                         "layers": [],
                         "composite": image_arrays[1],
                     },
-                    visible=True
+                    visible=True,
                 )
-            
+
             return (
                 gr.update(visible=row_visible),  # Row visibility
                 editor1_value,  # Editor 1 value
                 editor2_value,  # Editor 2 value
                 paths,  # Paths list for state
             )
-        
+
         image_refresh_button.click(
             fn=refresh_images_and_load,
             inputs=None,
-            outputs=[image_editors_row, image_editor_1, image_editor_2, image_paths_state],
+            outputs=[
+                image_editors_row,
+                image_editor_1,
+                image_editor_2,
+                image_paths_state,
+            ],
         )
 
         # Wire up send button and prompt submit for chat processing
         # Using state components (endpoint_state, model_state) to capture config values
         # ImageEditor outputs are now captured directly from the pre-created components
-        
+
         def process_message_with_editors(
             text: str,
             history: list,
@@ -380,7 +507,7 @@ def create_chat_app() -> gr.Blocks:
             editor2: dict | None,
         ):
             """Process user message with image editors collected directly.
-            
+
             Args:
                 text: User's text input.
                 history: Chat history state.
@@ -389,7 +516,7 @@ def create_chat_app() -> gr.Blocks:
                 model: Selected model name.
                 editor1: First ImageEditor output or None.
                 editor2: Second ImageEditor output or None.
-                
+
             Yields:
                 Tuple of (cleared_input, updated_chat_history).
             """
@@ -399,10 +526,12 @@ def create_chat_app() -> gr.Blocks:
                 editors.append(editor1)
             if editor2 is not None and editor2.get("background") is not None:
                 editors.append(editor2)
-            
+
             # Call the original process_user_message with collected editors
             # Use yield from to properly forward generator values for streaming
-            yield from process_user_message(text, history, provider, endpoint, model, editors)
+            yield from process_user_message(
+                text, history, provider, endpoint, model, editors
+            )
 
         send_button.click(
             fn=process_message_with_editors,
