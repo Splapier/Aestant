@@ -158,10 +158,89 @@ def has_saved_config(provider_type: str) -> bool:
     return config_path.exists()
 
 
+def load_models_from_config(provider_type: str) -> list[str]:
+    """Load saved models list from provider config file.
+
+    Args:
+        provider_type: The provider type identifier (e.g., "lmstudio").
+
+    Returns:
+        List of model names from config, or empty list if not found.
+
+    Example:
+        >>> models = load_models_from_config("lmstudio")
+        >>> print(models)  # ['model-1', 'model-2']
+    """
+    config_path = get_config_file_path(provider_type)
+
+    if not config_path.exists():
+        return []
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+
+        if not isinstance(config, dict):
+            return []
+
+        models = config.get("models")
+        if isinstance(models, list):
+            return models
+
+        return []
+
+    except (json.JSONDecodeError, IOError):
+        return []
+
+
+def save_models_to_config(provider_type: str, models: list[str]) -> bool:
+    """Save models list to provider config file, preserving existing settings.
+
+    This function loads the existing config, adds/updates the models list,
+    and saves back to the file.
+
+    Args:
+        provider_type: The provider type identifier (e.g., "lmstudio").
+        models: List of model names to save.
+
+    Returns:
+        True if save was successful, False otherwise.
+
+    Example:
+        >>> success = save_models_to_config("lmstudio", ["model-1", "model-2"])
+        >>> assert success is True
+    """
+    _ensure_config_dir()
+
+    config_path = get_config_file_path(provider_type)
+    current_config = {}
+
+    if config_path.exists():
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                current_config = json.load(f)
+                if not isinstance(current_config, dict):
+                    current_config = {}
+        except (json.JSONDecodeError, IOError):
+            current_config = {}
+
+    current_config["models"] = models
+
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(current_config, f, indent=2)
+        return True
+
+    except IOError:
+        return False
+
+
 __all__ = [
     "load_provider_config",
     "save_provider_config",
     "revert_field_to_default",
     "has_saved_config",
     "get_config_file_path",
+    "load_models_from_config",
+    "save_models_to_config",
 ]

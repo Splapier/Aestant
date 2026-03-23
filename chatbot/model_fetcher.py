@@ -9,10 +9,15 @@ from typing import Tuple
 
 import gradio as gr
 
+from chatbot.config_manager import (
+    has_saved_config,
+    load_models_from_config,
+    save_models_to_config,
+)
 from chatbot.providers import get_provider
 
 
-def validate_endpoint_url(endpoint_url: str) -> Tuple[bool, str]:
+def validate_endpoint_url(endpoint_url: str | None) -> Tuple[bool, str]:
     """Validate an endpoint URL for format correctness.
 
     This function checks that the provided URL is non-empty and starts with
@@ -31,7 +36,7 @@ def validate_endpoint_url(endpoint_url: str) -> Tuple[bool, str]:
         >>> is_valid, error = validate_endpoint_url("")
         >>> assert not is_valid
     """
-    if not endpoint_url or not endpoint_url.strip():
+    if endpoint_url is None or not endpoint_url.strip():
         return False, "Please enter a valid endpoint URL"
 
     url = endpoint_url.strip()
@@ -46,7 +51,7 @@ def validate_endpoint_url(endpoint_url: str) -> Tuple[bool, str]:
 
 def fetch_models_from_endpoint(
     selected_provider: str,
-    endpoint_url: str,
+    endpoint_url: str | None,
     current_models: list[str],
     progress: gr.Progress = gr.Progress(),
 ) -> Tuple[list[str], str, gr.update]:
@@ -74,6 +79,14 @@ def fetch_models_from_endpoint(
         ... )
         >>> print(f"Found {len(models)} models")
     """
+    # Don't validate empty URLs or None - just return current state without error
+    if endpoint_url is None or not endpoint_url.strip():
+        return (
+            current_models,
+            "ℹ️ Enter an endpoint URL to fetch models",
+            gr.update(choices=current_models),
+        )
+
     # Set initial loading state
     progress(0.1, desc="Connecting to provider...")
 
@@ -142,7 +155,8 @@ def refresh_models_manually(
 
     This function fetches models using the same logic as auto-fetch but
     preserves the currently selected model if it's still available in the
-    updated list.
+    updated list. After fetching, it saves the models to the provider config
+    file, overwriting any previously saved models.
 
     Args:
         selected_provider: Currently selected provider type.
@@ -168,6 +182,10 @@ def refresh_models_manually(
     # Preserve current selection if it's still in the updated list
     if current_selected_model and current_selected_model in updated_models:
         dropdown_update["value"] = current_selected_model
+
+    # Save fetched models to config file (overwrites previous models list)
+    if updated_models:
+        save_models_to_config(selected_provider, updated_models)
 
     return updated_models, status_msg, dropdown_update
 

@@ -6,7 +6,7 @@ chatbot package.
 """
 
 import gradio as gr
-from typing import Any
+from typing import Any, Tuple
 
 from chatbot import get_available_providers, get_provider
 from chatbot.chat_handler import (
@@ -17,6 +17,8 @@ from chatbot.chat_handler import (
 from chatbot.model_fetcher import fetch_models_from_endpoint, refresh_models_manually
 from chatbot.image_handler import scan_input_directory, load_images_from_directory
 from chatbot.config_manager import (
+    has_saved_config,
+    load_models_from_config,
     load_provider_config,
     save_provider_config,
 )
@@ -103,6 +105,12 @@ def create_chat_app() -> gr.Blocks:
                     # Load saved config or use defaults
                     loaded_config = load_provider_config(selected_provider, defaults)
 
+                    # Load models from config file if available
+                    saved_models = []
+                    config_exists = has_saved_config(selected_provider)
+                    if config_exists:
+                        saved_models = load_models_from_config(selected_provider)
+
                     gr.Markdown(
                         f"### {selected_provider.replace('cpp', '.cpp').title()} Configuration",
                         key=f"{selected_provider}-config-title",
@@ -119,6 +127,7 @@ def create_chat_app() -> gr.Blocks:
                             value=loaded_config.get("endpoint_url"),
                             placeholder="e.g., http://localhost:1234/v1",
                             info="Model list refreshes automatically on change",
+                            interactive=True,
                             key="lmstudio-endpoint",
                         )
 
@@ -132,6 +141,7 @@ def create_chat_app() -> gr.Blocks:
                             value=loaded_config.get("endpoint_url"),
                             placeholder="e.g., http://localhost:8080",
                             info="Model list refreshes automatically on change",
+                            interactive=True,
                             key="llamacpp-endpoint",
                         )
                     else:
@@ -145,7 +155,7 @@ def create_chat_app() -> gr.Blocks:
 
                     # Model selection dropdown (dynamically populated)
                     model_dropdown = gr.Dropdown(
-                        choices=[],  # Populated via fetch_models_from_endpoint
+                        choices=saved_models if saved_models else [],
                         label="Select Model",
                         value=loaded_config.get("model_name", ""),
                         interactive=True,
@@ -155,9 +165,17 @@ def create_chat_app() -> gr.Blocks:
                     )
 
                     # Status message display
+                    if saved_models:
+                        status_value = (
+                            f"✅ Loaded {len(saved_models)} model(s) from config"
+                        )
+                    else:
+                        status_value = (
+                            "ℹ️ Configure endpoint and press Refresh or modify URL"
+                        )
                     status_display = gr.Markdown(
                         label="Status",
-                        value="ℹ️ Configure endpoint and press Refresh or modify URL",
+                        value=status_value,
                         key=f"{selected_provider}-status",
                     )
 
@@ -262,9 +280,27 @@ def create_chat_app() -> gr.Blocks:
                             f"↩️ Configuration reverted to defaults for {provider}",
                         )
 
+                    def fetch_with_validation(
+                        endpoint_val: str | None,
+                        provider: str,
+                        current_models: list[str],
+                    ) -> Tuple[list[str], str, gr.update]:
+                        """Fetch models with pre-validation check."""
+                        if endpoint_val is None:
+                            endpoint_val = ""
+                        if endpoint_val.strip():
+                            return fetch_models_from_endpoint(
+                                provider, endpoint_val, current_models
+                            )
+                        return (
+                            current_models,
+                            "ℹ️ Enter an endpoint URL to fetch models",
+                            gr.update(choices=current_models),
+                        )
+
                     # Wire up auto-fetch on endpoint change (within render context)
                     endpoint_input.change(
-                        fn=lambda e, p, m: fetch_models_from_endpoint(e, p, m),
+                        fn=fetch_with_validation,
                         inputs=[endpoint_input, provider_selector, models_state],
                         outputs=[models_state, status_display, model_dropdown],
                     ).then(
@@ -393,11 +429,24 @@ def create_chat_app() -> gr.Blocks:
         # EVENT HANDLERS FOR SESSION AND CHAT
         # =====================================================================
 
-        # Event handler: Update session state when provider selection changes
+        # Event handler: Update session state and models when provider selection changes
+        def on_provider_change(provider: str):
+            """Handle provider change - update session and load provider's config."""
+            update_session_on_provider_change(provider, {})
+            saved_models = load_models_from_config(provider)
+            try:
+                provider_instance = get_provider(provider, {})
+                defaults = provider_instance.get_config_defaults()
+            except ValueError:
+                defaults = {"endpoint_url": ""}
+            loaded_config = load_provider_config(provider, defaults)
+            endpoint_url = loaded_config.get("endpoint_url", "")
+            return saved_models, endpoint_url
+
         provider_selector.change(
-            fn=update_session_on_provider_change,
-            inputs=[provider_selector, session_state],
-            outputs=session_state,
+            fn=on_provider_change,
+            inputs=[provider_selector],
+            outputs=[models_state, endpoint_state],
         )
 
         # Event handler: Clear the chat history and image editors
