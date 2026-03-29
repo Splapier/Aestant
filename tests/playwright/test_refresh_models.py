@@ -9,6 +9,7 @@ import json
 import pytest
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
 
 
 PROVIDERS = [
@@ -37,6 +38,16 @@ class _ModelHandler(BaseHTTPRequestHandler):
         """Suppress request logging."""
 
 
+@pytest.fixture()
+def config_dir(tmp_path, monkeypatch):
+    """Point CONFIG_DIR to a temporary directory for test isolation."""
+    monkeypatch.setattr("chatbot.config_manager.CONFIG_DIR", tmp_path)
+    import chatbot.config_manager
+
+    chatbot.config_manager.CONFIG_DIR = tmp_path
+    return tmp_path
+
+
 @pytest.fixture(scope="module")
 def mock_server():
     """Start a lightweight HTTP server that mocks the /models endpoint."""
@@ -61,7 +72,7 @@ class TestRefreshModels:
     """Verify Refresh Models returns expected status and populates the dropdown."""
 
     @pytest.mark.parametrize("provider", PROVIDERS, ids=lambda p: p["name"])
-    def test_refresh_models_connection_error(self, page, app_url, provider):
+    def test_refresh_models_connection_error(self, page, app_url, provider, config_dir):
         """Clicking Refresh Models with an unreachable endpoint shows a connection error.
 
         Steps:
@@ -86,7 +97,7 @@ class TestRefreshModels:
 
     @pytest.mark.parametrize("provider", PROVIDERS, ids=lambda p: p["name"])
     def test_refresh_models_success_populates_dropdown(
-        self, page, app_url, provider, mock_server
+        self, page, app_url, provider, mock_server, config_dir
     ):
         """Clicking Refresh Models against a working endpoint populates the dropdown.
 
