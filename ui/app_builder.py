@@ -371,23 +371,41 @@ def create_chat_app() -> gr.Blocks:
                         "🖼️ Refresh Images", variant="secondary"
                     )
 
-                # Status message for image loading
-                image_status_display = gr.Markdown(
-                    value="ℹ️ No images loaded. Click 'Refresh Images' or place files in `input/` directory.",
-                    label="Status",
-                )
+                # Pre-load images from input/ directory for initial display
+                initial_images = get_initial_images()
 
-                # Pre-create up to 2 ImageEditor components (hidden initially)
-                with gr.Row(visible=False) as image_editors_row:
+                # Status message for image loading
+                if initial_images:
+                    image_status_display = gr.Markdown(
+                        value=f"✅ Loaded {len(initial_images)} image(s) from input/ directory.",
+                        label="Status",
+                    )
+                else:
+                    image_status_display = gr.Markdown(
+                        value="ℹ️ No images loaded. Click 'Refresh Images' or place files in `input/` directory.",
+                        label="Status",
+                    )
+
+                # Pre-create up to 2 ImageEditor components
+                # Row is visible if images were found on load
+                with gr.Row(visible=bool(initial_images)) as image_editors_row:
                     editor1_value = {
-                        "background": None,
+                        "background": initial_images[0]
+                        if len(initial_images) >= 1
+                        else None,
                         "layers": [],
-                        "composite": None,
+                        "composite": initial_images[0]
+                        if len(initial_images) >= 1
+                        else None,
                     }
                     editor2_value = {
-                        "background": None,
+                        "background": initial_images[1]
+                        if len(initial_images) >= 2
+                        else None,
                         "layers": [],
-                        "composite": None,
+                        "composite": initial_images[1]
+                        if len(initial_images) >= 2
+                        else None,
                     }
 
                     image_editor_1 = gr.ImageEditor(
@@ -478,67 +496,72 @@ def create_chat_app() -> gr.Blocks:
             ],
         )
 
-        # Event handler: Refresh images from input directory and update ImageEditor components
-        def refresh_images_and_load() -> tuple[
-            gr.update, gr.update, gr.update, list[str]
-        ]:
-            """Refresh the list of images from the input directory and load into editors.
+        # Event handler: Refresh images from input directory and update ImageEditor components.
+        # Two-step approach: first show the row, then set editor values.
+        # Bundling visibility + value in a single gr.update() causes ImageEditor to
+        # get stuck in "processing" on the first click.
+
+        def show_image_row_if_images_exist() -> gr.update:
+            """Show the image editors row if images are available in input/."""
+            paths = scan_input_directory(max_count=2)
+            if paths:
+                return gr.update(visible=True)
+            return gr.update(visible=False)
+
+        def refresh_editor_values() -> tuple[gr.update, gr.update, list[str], str]:
+            """Load images from input/ into ImageEditor components.
 
             Returns:
-                Tuple of (row_visibility_update, editor1_value, editor2_value, paths_list).
+                Tuple of (editor1_update, editor2_update, paths_list, status_text).
             """
             from chatbot.image_handler import load_image_as_numpy
 
             paths = scan_input_directory(max_count=2)
 
-            # Load images into numpy arrays
             image_arrays = []
             for path in paths:
                 arr = load_image_as_numpy(path)
                 if arr is not None:
                     image_arrays.append(arr)
 
-            # Prepare editor values
-            editor1_value = gr.update()
-            editor2_value = gr.update()
-            row_visible = False
-
-            if len(image_arrays) >= 1:
-                editor1_value = gr.update(
-                    value={
-                        "background": image_arrays[0],
-                        "layers": [],
-                        "composite": image_arrays[0],
-                    },
-                    visible=True,
-                )
-                row_visible = True
-
-            if len(image_arrays) >= 2:
-                editor2_value = gr.update(
-                    value={
-                        "background": image_arrays[1],
-                        "layers": [],
-                        "composite": image_arrays[1],
-                    },
-                    visible=True,
-                )
-
-            return (
-                gr.update(visible=row_visible),  # Row visibility
-                editor1_value,  # Editor 1 value
-                editor2_value,  # Editor 2 value
-                paths,  # Paths list for state
+            editor1_update = gr.update(
+                value={
+                    "background": image_arrays[0] if len(image_arrays) >= 1 else None,
+                    "layers": [],
+                    "composite": image_arrays[0] if len(image_arrays) >= 1 else None,
+                },
+                visible=len(image_arrays) >= 1,
+            )
+            editor2_update = gr.update(
+                value={
+                    "background": image_arrays[1] if len(image_arrays) >= 2 else None,
+                    "layers": [],
+                    "composite": image_arrays[1] if len(image_arrays) >= 2 else None,
+                },
+                visible=len(image_arrays) >= 2,
             )
 
+            if image_arrays:
+                status = (
+                    f"✅ Loaded {len(image_arrays)} image(s) from input/ directory."
+                )
+            else:
+                status = "ℹ️ No images found in input/ directory."
+
+            return editor1_update, editor2_update, paths, status
+
         image_refresh_button.click(
-            fn=refresh_images_and_load,
+            fn=show_image_row_if_images_exist,
+            inputs=None,
+            outputs=[image_editors_row],
+        ).then(
+            fn=refresh_editor_values,
             inputs=None,
             outputs=[
-                image_editors_row,
                 image_editor_1,
                 image_editor_2,
                 image_paths_state,
+                image_status_display,
             ],
         )
 
