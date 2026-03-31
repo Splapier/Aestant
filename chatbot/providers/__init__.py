@@ -19,12 +19,6 @@ Usage Example:
 from chatbot.providers.base import BaseProvider
 from chatbot.providers.lmstudio_provider import LMStudioProvider
 from chatbot.providers.llamacpp_provider import LlamaCppProvider
-from chatbot.config_manager import (
-    load_provider_config,
-    save_provider_config,
-    revert_field_to_default,
-    has_saved_config,
-)
 
 # Provider registry mapping provider type strings to their classes
 PROVIDER_REGISTRY: dict[str, type[BaseProvider]] = {
@@ -80,8 +74,4 @@ __all__ = [
     "get_provider",
     "get_available_providers",
     "PROVIDER_REGISTRY",
-    "load_provider_config",
-    "save_provider_config",
-    "revert_field_to_default",
-    "has_saved_config",
 ]

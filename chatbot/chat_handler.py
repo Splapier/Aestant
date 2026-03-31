@@ -11,7 +11,7 @@ import numpy as np
 import gradio as gr
 
 from chatbot.providers import get_provider
-from chatbot.image_handler import process_image_annotations, prepare_multimodal_payload
+from chatbot.image_handler import prepare_multimodal_payload
 
 
 def update_session_on_provider_change(
@@ -63,7 +63,7 @@ def process_user_message(
         endpoint_url: Configured endpoint URL for the provider.
         model_name: Optional model name for the provider.
         image_editors_value: Optional list of ImageEditor output dictionaries.
-                           Each dict has format: {"background": np.ndarray, 
+                           Each dict has format: {"background": np.ndarray,
                                                 "layers": [np.ndarray], ...}
 
     Yields:
@@ -71,7 +71,7 @@ def process_user_message(
         The prompt text is always empty (cleared), and history accumulates messages.
 
     Example:
-        >>> generator = process_user_message("Hello", [], "lmstudio", 
+        >>> generator = process_user_message("Hello", [], "lmstudio",
         ...                                  "http://localhost:1234/v1", "")
         >>> for prompt, history in generator:
         ...     print(f"History length: {len(history)}")
@@ -88,13 +88,11 @@ def process_user_message(
 
     # Process image annotations if provided
     annotated_images: list[np.ndarray] = []
-    
+
     if image_editors_value:
         # Prepare multimodal payload - this processes all editor outputs
         _, annotated_images = prepare_multimodal_payload(
-            prompt_text, 
-            image_editors_value, 
-            min_area=100
+            prompt_text, image_editors_value, min_area=100
         )
 
     # Add user message to history
@@ -116,7 +114,7 @@ def process_user_message(
 
         # Stream the response from the provider (with images if available)
         full_response = ""
-        
+
         # Call stream_chat with optional images parameter
         for chunk in provider.stream_chat(updated_history, annotated_images):
             if chunk:

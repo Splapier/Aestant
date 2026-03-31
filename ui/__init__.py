@@ -1,12 +1,7 @@
 """UI package for the LLM chat application.
 
 This package contains all UI-related code for building the Gradio interface,
-including component builders, layout composition, and the main app builder.
-
-Modules:
-    components - Reusable Gradio component creation functions
-    layouts - Layout composition using Gradio Blocks context managers
-    app_builder - Main factory function for creating the complete application
+including the main app builder that composes all components and event handlers.
 
 Usage Example:
     >>> from ui import create_chat_app

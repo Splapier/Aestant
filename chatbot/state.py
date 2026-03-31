@@ -57,74 +57,7 @@ class ModelState:
     selected_model: Optional[str] = None
 
 
-@dataclass
-class ChatHistoryState:
-    """Manages conversation history for the chat session.
-
-    This class wraps the conversation history as a list of message dictionaries,
-    providing helper methods for common operations like adding messages or clearing.
-
-    Attributes:
-        messages: List of message dictionaries with 'role' and 'content' keys.
-
-    Example:
-        >>> history = ChatHistoryState()
-        >>> history.add_user_message("Hello!")
-        >>> history.add_assistant_message("Hi there!")
-    """
-
-    messages: list[dict[str, str]] = field(default_factory=list)
-
-    def add_user_message(self, content: str) -> None:
-        """Add a user message to the conversation history.
-
-        Args:
-            content: The text content of the user's message.
-        """
-        self.messages.append({"role": "user", "content": content})
-
-    def add_assistant_message(self, content: str) -> None:
-        """Add an assistant message to the conversation history.
-
-        Args:
-            content: The text content of the assistant's response.
-        """
-        self.messages.append({"role": "assistant", "content": content})
-
-    def clear(self) -> None:
-        """Clear all messages from the conversation history."""
-        self.messages.clear()
-
-    def get_last_assistant_message_index(self) -> Optional[int]:
-        """Get the index of the last assistant message.
-
-        Returns:
-            The index of the last assistant message, or None if no assistant
-            messages exist in the history.
-        """
-        for i in range(len(self.messages) - 1, -1, -1):
-            if self.messages[i].get("role") == "assistant":
-                return i
-        return None
-
-    def update_last_assistant_message(self, content: str) -> bool:
-        """Update the content of the last assistant message.
-
-        Args:
-            content: The new content for the last assistant message.
-
-        Returns:
-            True if an assistant message was found and updated, False otherwise.
-        """
-        index = self.get_last_assistant_message_index()
-        if index is not None:
-            self.messages[index]["content"] = content
-            return True
-        return False
-
-
 __all__ = [
     "ChatSessionState",
     "ModelState",
-    "ChatHistoryState",
 ]
