@@ -4,11 +4,7 @@ Tests that the conversation box is visible and displays the conversation label,
 and that the prompt input textbox is visible, enabled, and accepts user typing.
 """
 
-
-def _navigate(page, app_url):
-    """Navigate to the Gradio app and wait for it to load."""
-    page.goto(app_url, wait_until="domcontentloaded")
-    page.wait_for_timeout(3000)
+from helpers import navigate
 
 
 class TestConversationBox:
@@ -22,7 +18,7 @@ class TestConversationBox:
         2. Locate the chatbot component labelled 'Conversation'
         3. Assert it is visible on the page
         """
-        _navigate(page, app_url)
+        navigate(page, app_url)
 
         chatbot = page.locator("label:has-text('Conversation')").first
         chatbot.wait_for(state="visible", timeout=5000)
@@ -36,7 +32,7 @@ class TestConversationBox:
         2. Locate the chatbot wrapper element
         3. Assert it contains the 'Conversation' text
         """
-        _navigate(page, app_url)
+        navigate(page, app_url)
 
         chatbot = page.locator("label:has-text('Conversation')").first
         chatbot.wait_for(state="visible", timeout=5000)
@@ -56,7 +52,7 @@ class TestPromptInput:
         2. Locate the textbox labelled 'Your Message'
         3. Assert it is visible and not disabled
         """
-        _navigate(page, app_url)
+        navigate(page, app_url)
 
         textbox = page.get_by_label("Your Message")
         textbox.wait_for(state="visible", timeout=5000)
@@ -72,7 +68,7 @@ class TestPromptInput:
         3. Type a message into it
         4. Assert the textbox value matches the typed text
         """
-        _navigate(page, app_url)
+        navigate(page, app_url)
 
         textbox = page.get_by_label("Your Message")
         textbox.wait_for(state="visible", timeout=5000)

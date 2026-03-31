@@ -7,6 +7,8 @@ write to it in the browser.
 
 import pytest
 
+from helpers import navigate, select_provider
+
 PROVIDERS = [
     {
         "name": "lmstudio",
@@ -19,19 +21,6 @@ PROVIDERS = [
         "test_url": "http://localhost:9999",
     },
 ]
-
-
-def _navigate_to_app(page, app_url):
-    """Navigate to the Gradio app and wait for it to load."""
-    page.goto(app_url, wait_until="domcontentloaded")
-    page.wait_for_timeout(3000)
-
-
-def _select_provider(page, provider_name):
-    """Click the provider radio button and wait for the config panel to render."""
-    radio = page.locator("label").filter(has_text=provider_name).first
-    radio.click()
-    page.wait_for_timeout(1500)
 
 
 class TestEndpointUrlEditable:
@@ -48,8 +37,8 @@ class TestEndpointUrlEditable:
         4. Clear the field and type a new URL
         5. Assert the textbox value reflects the typed text
         """
-        _navigate_to_app(page, app_url)
-        _select_provider(page, provider["name"])
+        navigate(page, app_url)
+        select_provider(page, provider["name"])
 
         # Locate the Endpoint URL textbox by its label
         textbox = page.get_by_label("Endpoint URL")
@@ -82,8 +71,8 @@ class TestEndpointUrlEditable:
         3. Type a URL containing colons, slashes, and digits
         4. Assert the value is preserved exactly
         """
-        _navigate_to_app(page, app_url)
-        _select_provider(page, provider["name"])
+        navigate(page, app_url)
+        select_provider(page, provider["name"])
 
         textbox = page.get_by_label("Endpoint URL")
         textbox.wait_for(state="visible", timeout=5000)

@@ -15,6 +15,16 @@ from app import create_chat_app
 INPUT_DIR = Path(__file__).resolve().parent.parent.parent / "input"
 
 
+@pytest.fixture()
+def config_dir(tmp_path, monkeypatch):
+    """Point CONFIG_DIR to a temporary directory for test isolation."""
+    monkeypatch.setattr("chatbot.config_manager.CONFIG_DIR", tmp_path)
+    import chatbot.config_manager
+
+    chatbot.config_manager.CONFIG_DIR = tmp_path
+    return tmp_path
+
+
 @pytest.fixture(scope="session")
 def _test_images_session():
     """Ensure test images exist in input/ for the duration of the session.

@@ -6,13 +6,12 @@ first click (not requiring a second click).
 """
 
 import os
-from pathlib import Path
 
 import pytest
 from PIL import Image
-from playwright.sync_api import expect
 
-INPUT_DIR = Path(__file__).resolve().parent.parent.parent / "input"
+from conftest import INPUT_DIR
+from helpers import navigate
 
 
 @pytest.fixture()
@@ -30,11 +29,6 @@ def test_images():
             os.remove(p)
 
 
-def _navigate(page, app_url):
-    page.goto(app_url, wait_until="domcontentloaded")
-    page.wait_for_timeout(3000)
-
-
 class TestImagesAutoLoaded:
     """Verify images are displayed automatically when the page loads.
 
@@ -50,7 +44,7 @@ class TestImagesAutoLoaded:
         2. Assert the image editors row is visible
         3. Assert each ImageEditor has rendered canvas with non-zero dimensions
         """
-        _navigate(page, app_url)
+        navigate(page, app_url)
 
         # The editors row should be visible since images were auto-loaded
         editor1_label = page.locator("label:has-text('Image 1 (Draw rectangles)')")
@@ -89,7 +83,7 @@ class TestRefreshImagesButton:
         3. Click the Refresh Images button once
         4. Assert the image editors are visible with rendered images
         """
-        _navigate(page, app_url)
+        navigate(page, app_url)
 
         refresh_btn = page.get_by_role("button", name="Refresh Images")
         refresh_btn.click()
@@ -122,7 +116,7 @@ class TestRefreshImagesButton:
         2. Navigate and click Refresh Images once
         3. Assert both editors are visible with rendered images
         """
-        _navigate(page, app_url)
+        navigate(page, app_url)
 
         refresh_btn = page.get_by_role("button", name="Refresh Images")
         refresh_btn.click()

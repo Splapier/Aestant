@@ -9,7 +9,8 @@ import json
 import pytest
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from pathlib import Path
+
+from helpers import navigate, select_provider
 
 
 PROVIDERS = [
@@ -38,16 +39,6 @@ class _ModelHandler(BaseHTTPRequestHandler):
         """Suppress request logging."""
 
 
-@pytest.fixture()
-def config_dir(tmp_path, monkeypatch):
-    """Point CONFIG_DIR to a temporary directory for test isolation."""
-    monkeypatch.setattr("chatbot.config_manager.CONFIG_DIR", tmp_path)
-    import chatbot.config_manager
-
-    chatbot.config_manager.CONFIG_DIR = tmp_path
-    return tmp_path
-
-
 @pytest.fixture(scope="module")
 def mock_server():
     """Start a lightweight HTTP server that mocks the /models endpoint."""
@@ -56,16 +47,6 @@ def mock_server():
     thread.start()
     yield
     server.shutdown()
-
-
-def _navigate(page, app_url):
-    page.goto(app_url, wait_until="domcontentloaded")
-    page.wait_for_timeout(3000)
-
-
-def _select_provider(page, provider_name):
-    page.locator("label").filter(has_text=provider_name).first.click()
-    page.wait_for_timeout(1500)
 
 
 class TestRefreshModels:
@@ -81,8 +62,8 @@ class TestRefreshModels:
         3. Click Refresh Models
         4. Assert the status contains an error indicator
         """
-        _navigate(page, app_url)
-        _select_provider(page, provider["name"])
+        navigate(page, app_url)
+        select_provider(page, provider["name"])
 
         endpoint = page.get_by_label("Endpoint URL")
         endpoint.fill("http://127.0.0.1:19999")
@@ -109,8 +90,8 @@ class TestRefreshModels:
         5. Assert the dropdown contains the expected model choices
         6. Assert a model is selected by default
         """
-        _navigate(page, app_url)
-        _select_provider(page, provider["name"])
+        navigate(page, app_url)
+        select_provider(page, provider["name"])
 
         endpoint = page.get_by_label("Endpoint URL")
         endpoint.fill(provider["test_url"])

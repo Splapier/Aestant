@@ -6,7 +6,8 @@ Tests that modifying the endpoint URL and selecting a model, then clicking
 
 import json
 import pytest
-from pathlib import Path
+
+from helpers import navigate, select_provider
 
 
 PROVIDERS = [
@@ -23,27 +24,6 @@ PROVIDERS = [
         "config_file": "llamacpp_config.json",
     },
 ]
-
-
-@pytest.fixture()
-def config_dir(tmp_path, monkeypatch):
-    """Point CONFIG_DIR to a temporary directory for test isolation."""
-    monkeypatch.setattr("chatbot.config_manager.CONFIG_DIR", tmp_path)
-    # Also patch the CONFIG_DIR used by config_manager at module level
-    import chatbot.config_manager
-
-    chatbot.config_manager.CONFIG_DIR = tmp_path
-    return tmp_path
-
-
-def _navigate(page, app_url):
-    page.goto(app_url, wait_until="domcontentloaded")
-    page.wait_for_timeout(3000)
-
-
-def _select_provider(page, provider_name):
-    page.locator("label").filter(has_text=provider_name).first.click()
-    page.wait_for_timeout(1500)
 
 
 class TestSaveConfiguration:
@@ -63,8 +43,8 @@ class TestSaveConfiguration:
         5. Assert the status confirms the save
         6. Read the config JSON and assert values match
         """
-        _navigate(page, app_url)
-        _select_provider(page, provider["name"])
+        navigate(page, app_url)
+        select_provider(page, provider["name"])
 
         # Modify the endpoint URL
         endpoint = page.get_by_label("Endpoint URL")
@@ -122,8 +102,8 @@ class TestSaveConfiguration:
         3. Click Save Config
         4. Assert only the expected config file exists in the temp directory
         """
-        _navigate(page, app_url)
-        _select_provider(page, provider["name"])
+        navigate(page, app_url)
+        select_provider(page, provider["name"])
 
         endpoint = page.get_by_label("Endpoint URL")
         endpoint.fill(provider["test_url"])
