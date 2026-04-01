@@ -12,6 +12,8 @@ from chatbot.image_modules.rectangle_processing import (
     detect_rectangles_from_layer,
     detect_all_rectangles,
     burn_rectangles_into_image,
+    burn_rectangles_direct,
+    hex_to_rgb,
 )
 
 
@@ -274,9 +276,7 @@ class TestBurnRectanglesIntoImage:
     def test_custom_color(self):
         """Test drawing rectangle with custom color."""
         base_image = np.zeros((100, 100, 3), dtype=np.uint8)
-        rectangles = [
-            {"x1": 40, "y1": 40, "x2": 60, "y2": 60, "color": (0, 255, 0)}
-        ]
+        rectangles = [{"x1": 40, "y1": 40, "x2": 60, "y2": 60, "color": (0, 255, 0)}]
 
         result = burn_rectangles_into_image(base_image, rectangles)
 
@@ -352,6 +352,81 @@ class TestBurnRectanglesIntoImage:
         # Overlapping area should show the second rectangle's color (blue)
 
 
+class TestHexToRgb:
+    """Tests for the hex_to_rgb function."""
+
+    def test_red(self):
+        """Test conversion of red hex color."""
+        assert hex_to_rgb("#FF0000") == (255, 0, 0)
+
+    def test_green(self):
+        """Test conversion of green hex color."""
+        assert hex_to_rgb("#00FF00") == (0, 255, 0)
+
+    def test_blue(self):
+        """Test conversion of blue hex color."""
+        assert hex_to_rgb("#0000FF") == (0, 0, 255)
+
+    def test_black(self):
+        """Test conversion of black hex color."""
+        assert hex_to_rgb("#000000") == (0, 0, 0)
+
+    def test_white(self):
+        """Test conversion of white hex color."""
+        assert hex_to_rgb("#FFFFFF") == (255, 255, 255)
+
+    def test_lowercase(self):
+        """Test conversion works with lowercase hex."""
+        assert hex_to_rgb("#ff0000") == (255, 0, 0)
+
+
+class TestBurnRectanglesDirect:
+    """Tests for the burn_rectangles_direct function."""
+
+    def test_delegates_to_burn_rectangles(self):
+        """Test that burn_rectangles_direct produces same result as burn_rectangles_into_image."""
+        base_image = np.zeros((100, 100, 3), dtype=np.uint8)
+        rectangles = [{"x1": 10, "y1": 10, "x2": 50, "y2": 50}]
+
+        result_direct = burn_rectangles_direct(base_image, rectangles)
+        result_standard = burn_rectangles_into_image(base_image, rectangles)
+
+        assert np.array_equal(result_direct, result_standard)
+
+    def test_with_hex_color(self):
+        """Test burning rectangles with hex color strings."""
+        base_image = np.zeros((100, 100, 3), dtype=np.uint8)
+        rectangles = [{"x1": 20, "y1": 20, "x2": 80, "y2": 80, "color": "#00FF00"}]
+
+        result = burn_rectangles_direct(base_image, rectangles)
+
+        assert result.shape == base_image.shape
+        # Check green pixels on outline
+        assert result[20, 50][1] > 0  # Green channel on top edge
+
+    def test_with_tuple_color(self):
+        """Test burning rectangles with RGB tuple colors."""
+        base_image = np.zeros((100, 100, 3), dtype=np.uint8)
+        rectangles = [{"x1": 10, "y1": 10, "x2": 90, "y2": 90, "color": (255, 0, 0)}]
+
+        result = burn_rectangles_direct(base_image, rectangles)
+
+        assert result.shape == base_image.shape
+        assert result[10, 50][0] > 0  # Red channel
+
+    def test_unordered_coordinates(self):
+        """Test that coordinates are normalized regardless of draw direction."""
+        base_image = np.zeros((100, 100, 3), dtype=np.uint8)
+        # Draw from bottom-right to top-left
+        rectangles = [{"x1": 80, "y1": 80, "x2": 20, "y2": 20}]
+
+        result = burn_rectangles_direct(base_image, rectangles)
+
+        assert result.shape == base_image.shape
+        # The rectangle outline should still be visible
+        assert not np.array_equal(result, base_image)
+
+
 class TestIntegration:
     """Integration tests for the complete workflow."""
 
@@ -367,7 +442,9 @@ class TestIntegration:
         assert len(rectangles) == 1
 
         # Burn into base image
-        base_image = np.ones((200, 200, 3), dtype=np.uint8) * 240  # Light gray background
+        base_image = (
+            np.ones((200, 200, 3), dtype=np.uint8) * 240
+        )  # Light gray background
         annotated = burn_rectangles_into_image(base_image, rectangles)
 
         assert annotated.shape == base_image.shape

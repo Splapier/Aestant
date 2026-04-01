@@ -2,22 +2,21 @@
 
 This module provides functions for:
 - Scanning and loading images from a designated input directory
-- Parsing annotation data from Gradio ImageEditor components
-- Detecting rectangular shapes from brush strokes (layer alpha channels)
+- Processing rectangle annotations from the drawing tool
 - Burning rectangles into images using PIL.ImageDraw
 - Preparing multimodal payloads for LLM submission
 
 Usage Example:
     >>> from chatbot.image_handler import scan_input_directory, process_image_annotations
     >>> image_paths = scan_input_directory("./input", max_count=2)
-    >>> annotated_images = process_image_annotations(editor_outputs)
+    >>> annotated_img, rects = process_image_annotations(base_image, [{"x1": 10, "y1": 10, "x2": 50, "y2": 50}])
 """
 
 from typing import Any
 
 import numpy as np
 
-# Import functions from the new modules for backward compatibility
+# Import functions from submodules
 from chatbot.image_modules.image_loading import (
     scan_input_directory,
     load_image_as_numpy,
@@ -31,79 +30,49 @@ from chatbot.image_modules.rectangle_processing import (
     detect_rectangles_from_layer,
     detect_all_rectangles,
     burn_rectangles_into_image,
+    burn_rectangles_direct,
+)
+
+from chatbot.image_modules.rectangle_tool import (
+    RectangleTool,
+    RectangleToolConfig,
 )
 
 
-def parse_image_editor_data(editor_value: dict | None) -> tuple[np.ndarray, list[np.ndarray]]:
-    """Parse the output from a Gradio ImageEditor component.
-
-    The ImageEditor returns a dictionary with keys: 'background', 'layers', and 'composite'.
-    This function extracts the base image and any drawn layers for further processing.
-
-    Args:
-        editor_value: The value returned by gr.ImageEditor, or None if empty.
-                      Expected format: {"background": np.ndarray, "layers": [np.ndarray], ...}
-
-    Returns:
-        Tuple of (base_image, layers) where:
-        - base_image: The background image as numpy array (or None)
-        - layers: List of layer arrays representing user drawings (empty list if none)
-
-    Example:
-        >>> base, layers = parse_image_editor_data(editor_output)
-        >>> assert len(layers) >= 0  # May be empty if no drawing
-    """
-    if editor_value is None:
-        return None, []
-
-    background = editor_value.get("background")
-    layers = editor_value.get("layers", [])
-
-    # Handle case where layers might be a single array instead of list
-    if isinstance(layers, np.ndarray):
-        layers = [layers]
-
-    return background, list(layers)
-
-
 def process_image_annotations(
-    editor_value: dict | None, min_area: int = 100
+    background: np.ndarray | None,
+    rectangles: list[dict[str, Any]] | None = None,
 ) -> tuple[np.ndarray | None, list[dict[str, Any]]]:
-    """Process ImageEditor output to produce an annotated image.
+    """Process rectangle annotations to produce an annotated image.
 
     This is the main entry point for processing user annotations:
-    1. Parse the editor value to extract base image and layers
-    2. Detect rectangles from drawn layers
-    3. Burn rectangles into the base image
+    Takes a background image and rectangle coordinate data, then burns
+    the rectangle outlines directly into the image.
 
     Args:
-        editor_value: Output from gr.ImageEditor component.
-        min_area: Minimum area threshold for rectangle detection.
+        background: Base image as RGB numpy array (H x W x 3), or None.
+        rectangles: List of rectangle dicts with 'x1', 'y1', 'x2', 'y2'
+                    and optional 'color' key. Empty list if none drawn.
 
     Returns:
-        Tuple of (annotated_image, detected_rectangles) where:
+        Tuple of (annotated_image, rectangles) where:
         - annotated_image: Numpy array with rectangles burned in (or None)
-        - detected_rectangles: List of rectangle dicts that were drawn
+        - rectangles: The rectangle list that was passed in
 
     Example:
-        >>> annotated_img, rects = process_image_annotations(editor_output)
+        >>> rects = [{"x1": 10, "y1": 10, "x2": 50, "y2": 50, "color": "#FF0000"}]
+        >>> annotated_img, rects = process_image_annotations(base_image, rects)
         >>> if annotated_img is not None:
-        ...     print(f"Found {len(rects)} annotations")
+        ...     print(f"Drew {len(rects)} rectangles")
     """
-    base_image, layers = parse_image_editor_data(editor_value)
-
-    if base_image is None:
+    if background is None:
         return None, []
 
-    # Detect rectangles from all layers
-    rectangles = detect_all_rectangles(layers, min_area)
-
     if not rectangles:
-        # No annotations, return original image
-        return base_image, []
+        return background, []
 
-    # Burn rectangles into the image
-    annotated_image = burn_rectangles_into_image(base_image, rectangles)
+    # Burn rectangles directly into the image
+    annotated_image = burn_rectangles_direct(background, rectangles)
 
     return annotated_image, rectangles
 
@@ -111,17 +80,16 @@ def process_image_annotations(
 def prepare_multimodal_payload(
     text: str,
     editor_values: list[dict | None],
-    min_area: int = 100,
 ) -> tuple[str, list[np.ndarray]]:
     """Prepare a multimodal payload for LLM submission.
 
-    This function processes multiple ImageEditor outputs and combines them
-    with text into a format suitable for multimodal LLM providers.
+    Processes rectangle tool outputs and combines them with text into a
+    format suitable for multimodal LLM providers.
 
     Args:
         text: The user's text message.
-        editor_values: List of ImageEditor output dictionaries (one per image).
-        min_area: Minimum area threshold for rectangle detection.
+        editor_values: List of editor output dicts (one per image).
+                       Each dict has: {"background": np.ndarray, "rects": [...]}
 
     Returns:
         Tuple of (text, annotated_images) where:
@@ -138,7 +106,12 @@ def prepare_multimodal_payload(
         if editor_value is None:
             continue
 
-        annotated_img, _ = process_image_annotations(editor_value, min_area)
+        background = editor_value.get("background")
+        if background is None:
+            continue
+
+        rectangles = editor_value.get("rects", [])
+        annotated_img, _ = process_image_annotations(background, rectangles)
         if annotated_img is not None:
             annotated_images.append(annotated_img)
 
@@ -182,13 +155,15 @@ __all__ = [
     "scan_input_directory",
     "load_image_as_numpy",
     "load_images_from_directory",
-    "parse_image_editor_data",
     "detect_rectangles_from_layer",
     "detect_all_rectangles",
     "burn_rectangles_into_image",
+    "burn_rectangles_direct",
     "process_image_annotations",
     "prepare_multimodal_payload",
     "image_to_base64",
+    "RectangleTool",
+    "RectangleToolConfig",
     "SUPPORTED_EXTENSIONS",
     "DEFAULT_INPUT_DIR",
     "MAX_IMAGES_DEFAULT",
