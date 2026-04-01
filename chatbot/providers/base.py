@@ -6,7 +6,6 @@ ensuring consistent behavior across different backend services.
 
 import requests
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Any
 import numpy as np
 
@@ -23,8 +22,6 @@ class BaseProvider(ABC):
         provider_type (str): Identifier string for the provider type.
     """
 
-    CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
-
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize the provider with configuration parameters.
 
@@ -34,15 +31,6 @@ class BaseProvider(ABC):
         """
         self.config = config
         self._validate_config()
-
-    @classmethod
-    def get_config_file_path(cls) -> Path:
-        """Get the path to the configuration file for this provider type.
-
-        Returns:
-            Path object pointing to the provider's config file.
-        """
-        return cls.CONFIG_DIR / f"{cls.__name__.lower()}_config.json"
 
     @abstractmethod
     def _validate_config(self) -> None:
