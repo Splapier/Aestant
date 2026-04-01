@@ -1,125 +1,75 @@
 """Tests for image handling functionality.
 
 This module provides unit tests for the image_handler module,
-covering image editor data parsing, annotation processing,
-multimodal payload preparation, and base64 conversion.
+covering annotation processing, multimodal payload preparation,
+and base64 conversion.
 """
 
 import pytest
 import numpy as np
 
 from chatbot.image_handler import (
-    parse_image_editor_data,
     process_image_annotations,
     prepare_multimodal_payload,
     image_to_base64,
 )
 
 
-class TestParseImageEditorData:
-    """Tests for the parse_image_editor_data function."""
-
-    def test_none_returns_none_and_empty_list(self):
-        """Test that None input returns (None, [])."""
-        base, layers = parse_image_editor_data(None)
-        assert base is None
-        assert layers == []
-
-    def test_extracts_background_and_layers(self):
-        """Test that background and layers are extracted from editor dict."""
-        bg = np.zeros((50, 50, 3), dtype=np.uint8)
-        layer = np.ones((50, 50, 4), dtype=np.uint8)
-        editor = {"background": bg, "layers": [layer]}
-        base, layers = parse_image_editor_data(editor)
-        assert base is bg
-        assert len(layers) == 1
-        assert np.array_equal(layers[0], layer)
-
-    def test_single_array_layer_wrapped_in_list(self):
-        """Test that a single numpy array layer is wrapped in a list."""
-        bg = np.zeros((10, 10, 3), dtype=np.uint8)
-        layer = np.ones((10, 10, 4), dtype=np.uint8)
-        editor = {"background": bg, "layers": layer}
-        base, layers = parse_image_editor_data(editor)
-        assert base is bg
-        assert len(layers) == 1
-        assert isinstance(layers, list)
-
-    def test_missing_layers_returns_empty_list(self):
-        """Test that missing layers key returns empty list."""
-        bg = np.zeros((10, 10, 3), dtype=np.uint8)
-        editor = {"background": bg}
-        base, layers = parse_image_editor_data(editor)
-        assert base is bg
-        assert layers == []
-
-    def test_none_background(self):
-        """Test that None background is returned as-is."""
-        editor = {"background": None, "layers": [np.ones((10, 10, 4), dtype=np.uint8)]}
-        base, layers = parse_image_editor_data(editor)
-        assert base is None
-        assert len(layers) == 1
-
-    def test_empty_layers_list(self):
-        """Test that empty layers list is returned as-is."""
-        bg = np.zeros((10, 10, 3), dtype=np.uint8)
-        editor = {"background": bg, "layers": []}
-        base, layers = parse_image_editor_data(editor)
-        assert base is bg
-        assert layers == []
-
-
 class TestProcessImageAnnotations:
     """Tests for the process_image_annotations function."""
 
-    def test_none_editor_returns_none_and_empty(self):
-        """Test that None editor returns (None, [])."""
+    def test_none_background_returns_none_and_empty(self):
+        """Test that None background returns (None, [])."""
         img, rects = process_image_annotations(None)
         assert img is None
         assert rects == []
 
-    def test_no_base_image_returns_none(self):
-        """Test that editor with no background returns (None, [])."""
-        layer = np.zeros((10, 10, 4), dtype=np.uint8)
-        editor = {"background": None, "layers": [layer]}
-        img, rects = process_image_annotations(editor)
-        assert img is None
-        assert rects == []
-
-    def test_no_rectangles_returns_base_image(self):
-        """Test that no annotations returns base image with empty rects."""
+    def test_none_rects_returns_base_image(self):
+        """Test that None rects returns base image unchanged."""
         bg = np.ones((50, 50, 3), dtype=np.uint8) * 128
-        layer = np.zeros((50, 50, 4), dtype=np.uint8)  # No alpha => no rectangles
-        editor = {"background": bg, "layers": [layer]}
-        img, rects = process_image_annotations(editor)
+        img, rects = process_image_annotations(bg, None)
         assert img is not None
         assert np.array_equal(img, bg)
         assert rects == []
 
-    def test_with_annotations_returns_annotated_image(self):
-        """Test that valid annotations produce a different image with rectangles."""
-        bg = np.ones((100, 100, 3), dtype=np.uint8) * 200
-        layer = np.zeros((100, 100, 4), dtype=np.uint8)
-        layer[10:30, 10:30, 3] = 255  # Draw rectangle in alpha channel
-        editor = {"background": bg, "layers": [layer]}
-        img, rects = process_image_annotations(editor)
+    def test_empty_rects_returns_base_image(self):
+        """Test that empty rects returns base image unchanged."""
+        bg = np.ones((50, 50, 3), dtype=np.uint8) * 128
+        img, rects = process_image_annotations(bg, [])
         assert img is not None
-        assert len(rects) == 1
-        assert rects[0]["x1"] == 10
-        assert rects[0]["y1"] == 10
-        assert rects[0]["x2"] == 29
-        assert rects[0]["y2"] == 29
-
-    def test_custom_min_area(self):
-        """Test that min_area parameter filters small annotations."""
-        bg = np.ones((100, 100, 3), dtype=np.uint8) * 200
-        layer = np.zeros((100, 100, 4), dtype=np.uint8)
-        # Small 3x3 rect => area=9, below min_area=20
-        layer[5:8, 5:8, 3] = 255
-        editor = {"background": bg, "layers": [layer]}
-        img, rects = process_image_annotations(editor, min_area=20)
         assert np.array_equal(img, bg)
         assert rects == []
+
+    def test_with_rectangles_returns_annotated_image(self):
+        """Test that valid rectangles produce a different image."""
+        bg = np.ones((100, 100, 3), dtype=np.uint8) * 200
+        rects = [{"x1": 10, "y1": 10, "x2": 50, "y2": 50}]
+        img, returned_rects = process_image_annotations(bg, rects)
+        assert img is not None
+        assert len(returned_rects) == 1
+        assert returned_rects[0]["x1"] == 10
+        assert not np.array_equal(img, bg)
+
+    def test_with_hex_color_rectangles(self):
+        """Test that hex color rectangles are processed correctly."""
+        bg = np.zeros((100, 100, 3), dtype=np.uint8)
+        rects = [{"x1": 20, "y1": 20, "x2": 80, "y2": 80, "color": "#00FF00"}]
+        img, returned_rects = process_image_annotations(bg, rects)
+        assert img is not None
+        # Green pixels should be on the outline
+        assert img[20, 50][1] > 0  # Green channel on top edge
+
+    def test_preserves_rectangles_list(self):
+        """Test that the returned rectangles list matches input."""
+        bg = np.ones((100, 100, 3), dtype=np.uint8) * 128
+        rects = [
+            {"x1": 5, "y1": 5, "x2": 30, "y2": 30, "color": "#FF0000"},
+            {"x1": 40, "y1": 40, "x2": 90, "y2": 90, "color": "#0000FF"},
+        ]
+        img, returned_rects = process_image_annotations(bg, rects)
+        assert len(returned_rects) == 2
+        assert returned_rects[0]["color"] == "#FF0000"
+        assert returned_rects[1]["color"] == "#0000FF"
 
 
 class TestPrepareMultimodalPayload:
@@ -144,9 +94,8 @@ class TestPrepareMultimodalPayload:
     def test_valid_editors_produce_images(self):
         """Test that valid editors produce annotated images."""
         bg = np.ones((50, 50, 3), dtype=np.uint8) * 150
-        layer = np.zeros((50, 50, 4), dtype=np.uint8)
-        layer[10:30, 10:30, 3] = 255
-        editor = {"background": bg, "layers": [layer]}
+        rects = [{"x1": 10, "y1": 10, "x2": 30, "y2": 30}]
+        editor = {"background": bg, "rects": rects}
         text, images = prepare_multimodal_payload("Describe this", [editor])
         assert text == "Describe this"
         assert len(images) == 1
@@ -156,20 +105,24 @@ class TestPrepareMultimodalPayload:
     def test_mixed_none_and_valid_editors(self):
         """Test that mix of None and valid editors only includes valid ones."""
         bg = np.ones((20, 20, 3), dtype=np.uint8) * 100
-        layer = np.zeros((20, 20, 4), dtype=np.uint8)
-        layer[5:15, 5:15, 3] = 255
-        editor = {"background": bg, "layers": [layer]}
+        rects = [{"x1": 5, "y1": 5, "x2": 15, "y2": 15}]
+        editor = {"background": bg, "rects": rects}
         text, images = prepare_multimodal_payload("Test", [None, editor, None])
         assert len(images) == 1
 
-    def test_editor_without_annotations_excluded(self):
-        """Test that editors with no annotations produce no image."""
-        bg = np.ones((30, 30, 3), dtype=np.uint8) * 128
-        layer = np.zeros((30, 30, 4), dtype=np.uint8)  # No alpha
-        editor = {"background": bg, "layers": [layer]}
+    def test_editor_without_background_skipped(self):
+        """Test that editors with no background are skipped."""
+        editor = {"background": None, "rects": [{"x1": 5, "y1": 5, "x2": 15, "y2": 15}]}
         text, images = prepare_multimodal_payload("Test", [editor])
-        # No annotations => base image returned but still included
+        assert len(images) == 0
+
+    def test_editor_without_rects_still_included(self):
+        """Test that editors with background but no rects still produce an image."""
+        bg = np.ones((30, 30, 3), dtype=np.uint8) * 128
+        editor = {"background": bg, "rects": []}
+        text, images = prepare_multimodal_payload("Test", [editor])
         assert len(images) == 1
+        assert np.array_equal(images[0], bg)
 
 
 class TestImageToBase64:
@@ -187,7 +140,6 @@ class TestImageToBase64:
 
         img = np.zeros((10, 10, 3), dtype=np.uint8)
         result = image_to_base64(img)
-        # Extract base64 part after prefix
         b64_data = result.split(",", 1)[1]
         decoded = base64.b64decode(b64_data)
         assert len(decoded) > 0
@@ -200,7 +152,6 @@ class TestImageToBase64:
         result_large = image_to_base64(img_large)
         assert result_small.startswith("data:image/png;base64,")
         assert result_large.startswith("data:image/png;base64,")
-        # Larger image should produce longer base64 string
         assert len(result_large) > len(result_small)
 
     def test_roundtrip_preserves_dimensions(self):

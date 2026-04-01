@@ -42,28 +42,21 @@ class TestImagesAutoLoaded:
         Steps:
         1. Navigate to the app (images already in input/ from session fixture)
         2. Assert the image editors row is visible
-        3. Assert each ImageEditor has rendered canvas with non-zero dimensions
+        3. Assert each rectangle tool canvas has rendered with non-zero dimensions
         """
         navigate(page, app_url)
 
-        # The editors row should be visible since images were auto-loaded
-        editor1_label = page.locator("label:has-text('Image 1 (Draw rectangles)')")
-        editor1_label.wait_for(state="visible", timeout=10000)
-        assert editor1_label.is_visible(), (
-            "Image 1 label should be visible on page load"
-        )
+        # The rectangle tool canvases should be visible since images were auto-loaded
+        canvas1 = page.locator("#rect-tool-1 canvas")
+        canvas1.wait_for(state="visible", timeout=10000)
+        assert canvas1.is_visible(), "Image 1 canvas should be visible on page load"
 
-        editor2_label = page.locator("label:has-text('Image 2 (Draw rectangles)')")
-        editor2_label.wait_for(state="visible", timeout=10000)
-        assert editor2_label.is_visible(), (
-            "Image 2 label should be visible on page load"
-        )
+        canvas2 = page.locator("#rect-tool-2 canvas")
+        canvas2.wait_for(state="visible", timeout=10000)
+        assert canvas2.is_visible(), "Image 2 canvas should be visible on page load"
 
-        # Verify canvases have non-zero dimensions (images actually rendered)
-        canvases = page.locator("canvas").all()
-        assert len(canvases) >= 2, "At least 2 canvas elements should exist"
-        for i, canvas in enumerate(canvases[:2]):
-            canvas.wait_for(state="visible", timeout=10000)
+        # Verify canvases have non-zero dimensions
+        for i, canvas in enumerate([canvas1, canvas2]):
             bbox = canvas.bounding_box()
             assert bbox is not None, f"Canvas {i} should have a bounding box"
             assert bbox["width"] > 0 and bbox["height"] > 0, (
@@ -81,7 +74,7 @@ class TestRefreshImagesButton:
         1. Place test images in input/
         2. Navigate to the app
         3. Click the Refresh Images button once
-        4. Assert the image editors are visible with rendered images
+        4. Assert the rectangle tool canvases are visible with rendered images
         """
         navigate(page, app_url)
 
@@ -89,18 +82,14 @@ class TestRefreshImagesButton:
         refresh_btn.click()
         page.wait_for_timeout(5000)
 
-        # After a single click, Image 1 editor should be visible with canvas
-        editor1_label = page.locator("label:has-text('Image 1 (Draw rectangles)')")
-        editor1_label.wait_for(state="visible", timeout=10000)
-        assert editor1_label.is_visible(), (
-            "Image 1 label should be visible after first refresh click"
+        # After a single click, canvas should be visible
+        canvas1 = page.locator("#rect-tool-1 canvas")
+        canvas1.wait_for(state="visible", timeout=10000)
+        assert canvas1.is_visible(), (
+            "Image 1 canvas should be visible after first refresh click"
         )
 
-        canvases = page.locator("canvas").all()
-        assert len(canvases) >= 1, "At least 1 canvas should exist after refresh"
-        canvas = canvases[0]
-        canvas.wait_for(state="visible", timeout=10000)
-        bbox = canvas.bounding_box()
+        bbox = canvas1.bounding_box()
         assert bbox is not None, (
             "Image 1 canvas should have a bounding box (not stuck in processing)"
         )
@@ -114,7 +103,7 @@ class TestRefreshImagesButton:
         Steps:
         1. Place 2 test images in input/
         2. Navigate and click Refresh Images once
-        3. Assert both editors are visible with rendered images
+        3. Assert both editors are visible with rendered canvases
         """
         navigate(page, app_url)
 
@@ -122,17 +111,13 @@ class TestRefreshImagesButton:
         refresh_btn.click()
         page.wait_for_timeout(5000)
 
-        editor1_label = page.locator("label:has-text('Image 1 (Draw rectangles)')")
-        editor1_label.wait_for(state="visible", timeout=10000)
+        canvas1 = page.locator("#rect-tool-1 canvas")
+        canvas1.wait_for(state="visible", timeout=10000)
 
-        editor2_label = page.locator("label:has-text('Image 2 (Draw rectangles)')")
-        editor2_label.wait_for(state="visible", timeout=10000)
+        canvas2 = page.locator("#rect-tool-2 canvas")
+        canvas2.wait_for(state="visible", timeout=10000)
 
-        canvases = page.locator("canvas").all()
-        assert len(canvases) >= 2, "Both editors should have canvas elements"
-
-        for i, canvas in enumerate(canvases[:2]):
-            canvas.wait_for(state="visible", timeout=10000)
+        for i, canvas in enumerate([canvas1, canvas2]):
             bbox = canvas.bounding_box()
             assert bbox is not None, f"Canvas {i} should have a bounding box"
             assert bbox["width"] > 0 and bbox["height"] > 0, (

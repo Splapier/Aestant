@@ -52,7 +52,7 @@ def process_user_message(
     This function handles the complete chat flow:
     1. Clears the input textbox first for immediate feedback
     2. Adds the user's message to the conversation history
-    3. Processes any image annotations from ImageEditor components
+    3. Processes any image annotations from rectangle tool components
     4. Creates or updates the provider with current configuration
     5. Streams the model's response back to the interface (with images if provided)
 
@@ -62,9 +62,9 @@ def process_user_message(
         provider_type: Currently selected provider type (e.g., "lmstudio").
         endpoint_url: Configured endpoint URL for the provider.
         model_name: Optional model name for the provider.
-        image_editors_value: Optional list of ImageEditor output dictionaries.
+        image_editors_value: Optional list of rectangle tool output dictionaries.
                            Each dict has format: {"background": np.ndarray,
-                                                "layers": [np.ndarray], ...}
+                                                "rects": [{"x1","y1","x2","y2","color"}]}
 
     Yields:
         Tuple of (cleared_prompt_text, updated_chat_history) after each update.
@@ -92,7 +92,7 @@ def process_user_message(
     if image_editors_value:
         # Prepare multimodal payload - this processes all editor outputs
         _, annotated_images = prepare_multimodal_payload(
-            prompt_text, image_editors_value, min_area=100
+            prompt_text, image_editors_value
         )
 
     # Add user message to history

@@ -5,7 +5,12 @@ cross-cutting concerns: provider change, chat clearing, and message sending.
 These handlers reference components created by the sidebar and chat area modules.
 """
 
+import base64
+from io import BytesIO
+
 import gradio as gr
+import numpy as np
+from PIL import Image
 
 from chatbot.chat_handler import (
     process_user_message,
@@ -18,6 +23,26 @@ from chatbot.config_manager import (
 from chatbot import get_provider
 from ui.state_setup import AppState
 from ui.chat_area import ChatAreaComponents
+
+
+def _b64_to_numpy(b64_data_url: str | None) -> np.ndarray | None:
+    """Convert a base64 data URL string back to a numpy RGB array.
+
+    Args:
+        b64_data_url: Data URL string like "data:image/png;base64,...", or None.
+
+    Returns:
+        RGB numpy array (H x W x 3), or None if input is invalid.
+    """
+    if not b64_data_url:
+        return None
+    try:
+        header, data = b64_data_url.split(",", 1)
+        img_bytes = base64.b64decode(data)
+        img = Image.open(BytesIO(img_bytes)).convert("RGB")
+        return np.array(img)
+    except Exception:
+        return None
 
 
 def on_provider_change(provider: str) -> tuple[list[str], str]:
@@ -41,10 +66,18 @@ def clear_all() -> tuple[str, list, gr.update, gr.update, gr.update, list]:
         [],  # chatbot_component
         gr.update(visible=False),  # image_editors_row
         gr.update(
-            value={"background": None, "layers": [], "composite": None}
+            value={
+                "background_b64": "",
+                "rects": [],
+                "label": "Image 1 - Rectangle Tool",
+            }
         ),  # editor1
         gr.update(
-            value={"background": None, "layers": [], "composite": None}
+            value={
+                "background_b64": "",
+                "rects": [],
+                "label": "Image 2 - Rectangle Tool",
+            }
         ),  # editor2
         [],  # image_paths_state
     )
@@ -59,16 +92,28 @@ def process_message_with_editors(
     editor1: dict | None,
     editor2: dict | None,
 ):
-    """Process user message with image editors collected directly.
+    """Process user message with rectangle tool data collected directly.
+
+    Converts HTML editor values (with background_b64) into the format
+    expected by the chat handler (with background as numpy array).
 
     Yields:
         Tuple of (cleared_input, updated_chat_history).
     """
     editors = []
-    if editor1 is not None and editor1.get("background") is not None:
-        editors.append(editor1)
-    if editor2 is not None and editor2.get("background") is not None:
-        editors.append(editor2)
+
+    for editor_val in [editor1, editor2]:
+        if editor_val is None:
+            continue
+        bg = _b64_to_numpy(editor_val.get("background_b64"))
+        if bg is None:
+            continue
+        editors.append(
+            {
+                "background": bg,
+                "rects": editor_val.get("rects", []),
+            }
+        )
 
     yield from process_user_message(text, history, provider, endpoint, model, editors)
 

@@ -3,13 +3,24 @@
 This module builds the central chat interface including the chatbot display,
 image annotation editors, message input, and action buttons. It also handles
 image refresh event wiring which is local to this section.
+
+Image annotation uses custom HTML5 Canvas rectangle tools built on gr.HTML,
+replacing the previous gr.ImageEditor with freeform brush.
 """
 
 import gradio as gr
 from dataclasses import dataclass
 
 from chatbot.image_handler import scan_input_directory, load_images_from_directory
-from chatbot.image_handler import load_image_as_numpy
+from chatbot.image_handler import load_image_as_numpy, RectangleTool
+
+
+# Pre-compute HTML templates once (they don't change between updates)
+_tool_config = RectangleTool()
+_update_template = _tool_config.get_html_update()
+_HTML_TEMPLATE = _update_template["html_template"]
+_CSS_TEMPLATE = _update_template["css_template"]
+_JS_TEMPLATE = _update_template["js_on_load"]
 
 
 @dataclass
@@ -22,8 +33,8 @@ class ChatAreaComponents:
         send_button: Button to submit messages.
         clear_button: Button to clear chat history.
         image_editors_row: Row container for image editors (for visibility control).
-        image_editor_1: First ImageEditor component.
-        image_editor_2: Second ImageEditor component.
+        image_editor_1: First HTML rectangle tool component.
+        image_editor_2: Second HTML rectangle tool component.
         image_status_display: Status message for image loading.
     """
 
@@ -32,8 +43,8 @@ class ChatAreaComponents:
     send_button: gr.Button
     clear_button: gr.Button
     image_editors_row: gr.Row
-    image_editor_1: gr.ImageEditor
-    image_editor_2: gr.ImageEditor
+    image_editor_1: gr.HTML
+    image_editor_2: gr.HTML
     image_status_display: gr.Markdown
 
 
@@ -51,7 +62,7 @@ def _show_image_row_if_images_exist() -> gr.update:
 
 
 def _refresh_editor_values() -> tuple[gr.update, gr.update, list[str], str]:
-    """Load images from input/ into ImageEditor components.
+    """Load images from input/ into rectangle tool components.
 
     Returns:
         Tuple of (editor1_update, editor2_update, paths_list, status_text).
@@ -64,27 +75,34 @@ def _refresh_editor_values() -> tuple[gr.update, gr.update, list[str], str]:
         if arr is not None:
             image_arrays.append(arr)
 
+    # Build value dicts
+    tool1 = RectangleTool(label="Image 1 - Rectangle Tool")
+    tool2 = RectangleTool(label="Image 2 - Rectangle Tool")
+
+    if len(image_arrays) >= 1:
+        tool1.set_background(image_arrays[0])
+    if len(image_arrays) >= 2:
+        tool2.set_background(image_arrays[1])
+
     editor1_update = gr.update(
-        value={
-            "background": image_arrays[0] if len(image_arrays) >= 1 else None,
-            "layers": [],
-            "composite": image_arrays[0] if len(image_arrays) >= 1 else None,
-        },
+        value=tool1._get_value(),
+        html_template=_HTML_TEMPLATE,
+        css_template=_CSS_TEMPLATE,
+        js_on_load=_JS_TEMPLATE,
         visible=len(image_arrays) >= 1,
     )
     editor2_update = gr.update(
-        value={
-            "background": image_arrays[1] if len(image_arrays) >= 2 else None,
-            "layers": [],
-            "composite": image_arrays[1] if len(image_arrays) >= 2 else None,
-        },
+        value=tool2._get_value(),
+        html_template=_HTML_TEMPLATE,
+        css_template=_CSS_TEMPLATE,
+        js_on_load=_JS_TEMPLATE,
         visible=len(image_arrays) >= 2,
     )
 
     if image_arrays:
-        status = f"✅ Loaded {len(image_arrays)} image(s) from input/ directory."
+        status = f"Loaded {len(image_arrays)} image(s) from input/ directory."
     else:
-        status = "ℹ️ No images found in input/ directory."
+        status = "No images found in input/ directory."
 
     return editor1_update, editor2_update, paths, status
 
@@ -105,60 +123,61 @@ def create_chat_area(image_paths_state: gr.State) -> ChatAreaComponents:
         chatbot_component = gr.Chatbot(label="Conversation", height=500)
 
         # Image annotation section
-        gr.Markdown("## 🖼️ Image Annotation (Optional)")
+        gr.Markdown("## Image Annotation (Optional)")
         gr.Markdown(
             "Place images in the `input/` directory and draw rectangles to highlight regions of interest."
         )
 
         with gr.Row():
-            image_refresh_button = gr.Button("🖼️ Refresh Images", variant="secondary")
+            image_refresh_button = gr.Button("Refresh Images", variant="secondary")
 
         initial_images = _load_initial_images()
 
         if initial_images:
             image_status_display = gr.Markdown(
-                value=f"✅ Loaded {len(initial_images)} image(s) from input/ directory.",
+                value=f"Loaded {len(initial_images)} image(s) from input/ directory.",
                 label="Status",
             )
         else:
             image_status_display = gr.Markdown(
-                value="ℹ️ No images loaded. Click 'Refresh Images' or place files in `input/` directory.",
+                value="No images loaded. Click 'Refresh Images' or place files in `input/` directory.",
                 label="Status",
             )
 
-        # Pre-create up to 2 ImageEditor components
-        with gr.Row(visible=bool(initial_images)) as image_editors_row:
-            editor1_value = {
-                "background": initial_images[0] if len(initial_images) >= 1 else None,
-                "layers": [],
-                "composite": initial_images[0] if len(initial_images) >= 1 else None,
-            }
-            editor2_value = {
-                "background": initial_images[1] if len(initial_images) >= 2 else None,
-                "layers": [],
-                "composite": initial_images[1] if len(initial_images) >= 2 else None,
-            }
+        # Build initial values
+        init_tool1 = RectangleTool(
+            label="Image 1 - Rectangle Tool",
+            visible=len(initial_images) >= 1,
+        )
+        init_tool2 = RectangleTool(
+            label="Image 2 - Rectangle Tool",
+            visible=len(initial_images) >= 2,
+        )
+        if len(initial_images) >= 1:
+            init_tool1.set_background(initial_images[0])
+        if len(initial_images) >= 2:
+            init_tool2.set_background(initial_images[1])
 
-            image_editor_1 = gr.ImageEditor(
-                label="Image 1 (Draw rectangles)",
-                type="numpy",
-                brush=gr.Brush(
-                    default_color="#FF0000",
-                    colors=["#FF0000", "#00FF00", "#0000FF"],
-                ),
-                interactive=True,
-                value=editor1_value,
+        # Pre-create up to 2 HTML rectangle tool components
+        with gr.Row(visible=bool(initial_images)) as image_editors_row:
+            image_editor_1 = gr.HTML(
+                value=init_tool1._get_value(),
+                html_template=_HTML_TEMPLATE,
+                css_template=_CSS_TEMPLATE,
+                js_on_load=_JS_TEMPLATE,
+                label="Image 1 - Rectangle Tool",
+                elem_id="rect-tool-1",
+                visible=len(initial_images) >= 1,
             )
 
-            image_editor_2 = gr.ImageEditor(
-                label="Image 2 (Draw rectangles)",
-                type="numpy",
-                brush=gr.Brush(
-                    default_color="#FF0000",
-                    colors=["#FF0000", "#00FF00", "#0000FF"],
-                ),
-                interactive=True,
-                value=editor2_value,
+            image_editor_2 = gr.HTML(
+                value=init_tool2._get_value(),
+                html_template=_HTML_TEMPLATE,
+                css_template=_CSS_TEMPLATE,
+                js_on_load=_JS_TEMPLATE,
+                label="Image 2 - Rectangle Tool",
+                elem_id="rect-tool-2",
+                visible=len(initial_images) >= 2,
             )
 
         # Input and buttons
@@ -174,8 +193,6 @@ def create_chat_area(image_paths_state: gr.State) -> ChatAreaComponents:
             clear_button = gr.Button("Clear Chat", variant="secondary")
 
     # Wire image refresh events (two-step: show row, then set values)
-    # Bundling visibility + value in a single gr.update() causes ImageEditor to
-    # get stuck in "processing" on the first click.
     image_refresh_button.click(
         fn=_show_image_row_if_images_exist,
         inputs=None,

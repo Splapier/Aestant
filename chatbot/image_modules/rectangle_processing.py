@@ -132,6 +132,7 @@ def burn_rectangles_into_image(
         base_image: RGB numpy array (H x W x 3) representing the base image.
         rectangles: List of rectangle dicts with 'x1', 'y1', 'x2', 'y2' keys.
                     Optional 'color' key for custom colors (default: red).
+                    Color can be a hex string (e.g. "#FF0000") or RGB tuple.
         line_width: Width of the rectangle outline in pixels.
 
     Returns:
@@ -151,16 +152,65 @@ def burn_rectangles_into_image(
     for rect in rectangles:
         x1, y1 = rect["x1"], rect["y1"]
         x2, y2 = rect["x2"], rect["y2"]
-        color = rect.get("color", (255, 0, 0))  # Default to red
+        color = rect.get("color", (255, 0, 0))
+
+        # Normalize hex color strings to RGB tuples
+        if isinstance(color, str) and color.startswith("#"):
+            color = hex_to_rgb(color)
+
+        # Ensure coordinates are ordered (top-left to bottom-right)
+        rx1, ry1 = min(x1, x2), min(y1, y2)
+        rx2, ry2 = max(x1, x2), max(y1, y2)
 
         # Draw rectangle outline
-        draw.rectangle([x1, y1, x2, y2], outline=color, width=line_width)
+        draw.rectangle([rx1, ry1, rx2, ry2], outline=color, width=line_width)
 
     return np.array(pil_img)
+
+
+def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    """Convert a hex color string to an RGB tuple.
+
+    Args:
+        hex_color: Color in "#RRGGBB" format.
+
+    Returns:
+        Tuple of (R, G, B) integers.
+
+    Example:
+        >>> hex_to_rgb("#FF0000")
+        (255, 0, 0)
+    """
+    h = hex_color.lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def burn_rectangles_direct(
+    base_image: np.ndarray,
+    rectangles: list[dict[str, Any]],
+    line_width: int = 3,
+) -> np.ndarray:
+    """Burn rectangle outlines directly from coordinate data onto an image.
+
+    This is a convenience wrapper around burn_rectangles_into_image() for
+    use with the rectangle drawing tool, which provides coordinates directly
+    rather than requiring detection from brush stroke layers.
+
+    Args:
+        base_image: RGB numpy array (H x W x 3).
+        rectangles: List of dicts with 'x1', 'y1', 'x2', 'y2' and optional 'color'.
+        line_width: Outline width in pixels.
+
+    Returns:
+        Annotated numpy array with rectangle outlines drawn.
+    """
+    return burn_rectangles_into_image(base_image, rectangles, line_width)
 
 
 __all__ = [
     "detect_rectangles_from_layer",
     "detect_all_rectangles",
     "burn_rectangles_into_image",
+    "burn_rectangles_direct",
+    "hex_to_rgb",
 ]
