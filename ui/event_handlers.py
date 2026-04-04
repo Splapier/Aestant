@@ -1,8 +1,8 @@
 """Top-level event handler wiring for the chat application.
 
 This module contains the pure handler functions and event wiring for
-cross-cutting concerns: provider change, chat clearing, and message sending.
-These handlers reference components created by the sidebar and chat area modules.
+cross-cutting concerns: provider change, chat clearing, message sending,
+and preference election.
 """
 
 import base64
@@ -19,6 +19,12 @@ from chatbot.chat_handler import (
 from chatbot.config_manager import (
     load_models_from_config,
     load_provider_config,
+)
+from chatbot.preference_election import (
+    create_empty_preference_json,
+    load_preference_json,
+    run_full_election,
+    get_all_tags,
 )
 from chatbot import get_provider
 from ui.state_setup import AppState
@@ -175,4 +181,74 @@ def wire_events(
         fn=process_message_with_editors,
         inputs=send_inputs,
         outputs=send_outputs,
+    )
+
+    def run_election(
+        provider: str,
+        endpoint: str,
+        model: str,
+    ):
+        """Run the preference election tournament."""
+        try:
+            pref = create_empty_preference_json()
+        except Exception:
+            pref = load_preference_json()
+
+        config = {
+            "endpoint_url": endpoint.strip(),
+            "model_name": model.strip() if model else "",
+        }
+
+        yield (
+            gr.update(visible=True, value="Starting election..."),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(visible=False, value=[]),
+            [],
+            "",
+        )
+
+        try:
+            result = run_full_election(pref, provider, config)
+
+            all_tags = get_all_tags(result.winner_tags, result.runner_up_tags)
+
+            gallery_images = [
+                (result.winner_image, "Winner"),
+                (result.runner_up_image, "Runner-Up"),
+            ]
+
+            yield (
+                gr.update(visible=True, value="Election complete!"),
+                gr.update(visible=True),
+                gr.update(visible=True),
+                gr.update(visible=True, value=gallery_images),
+                all_tags,
+                result.explanation,
+            )
+
+        except Exception as e:
+            yield (
+                gr.update(visible=True, value=f"Error: {str(e)}"),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False, value=[]),
+                [],
+                "",
+            )
+
+    chat.run_election_button.click(
+        fn=run_election,
+        inputs=[
+            provider_selector,
+            state.endpoint_state,
+            state.model_state,
+        ],
+        outputs=[
+            chat.election_status,
+            chat.election_results_row,
+            chat.election_gallery,
+            chat.tags_checkboxgroup,
+            chat.explanation_textbox,
+        ],
     )

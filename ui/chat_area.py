@@ -36,6 +36,12 @@ class ChatAreaComponents:
         image_editor_1: First HTML rectangle tool component.
         image_editor_2: Second HTML rectangle tool component.
         image_status_display: Status message for image loading.
+        run_election_button: Button to run preference election.
+        election_status: Status display for election progress.
+        election_results_row: Row containing election results.
+        election_gallery: Gallery showing winner/runner-up.
+        tags_checkboxgroup: Selectable tags for final images.
+        explanation_textbox: Explanation of winner choice.
     """
 
     chatbot_component: gr.Chatbot
@@ -46,6 +52,12 @@ class ChatAreaComponents:
     image_editor_1: gr.HTML
     image_editor_2: gr.HTML
     image_status_display: gr.Markdown
+    run_election_button: gr.Button
+    election_status: gr.Textbox
+    election_results_row: gr.Row
+    election_gallery: gr.Gallery
+    tags_checkboxgroup: gr.CheckboxGroup
+    explanation_textbox: gr.Textbox
 
 
 def _load_initial_images() -> list:
@@ -192,6 +204,41 @@ def create_chat_area(image_paths_state: gr.State) -> ChatAreaComponents:
             send_button = gr.Button("Send", variant="primary")
             clear_button = gr.Button("Clear Chat", variant="secondary")
 
+        gr.Markdown("---")
+        gr.Markdown("## Preference Election")
+
+        with gr.Row():
+            run_election_button = gr.Button(
+                "Run Preference Election", variant="primary"
+            )
+
+        election_status = gr.Textbox(
+            label="Election Status",
+            lines=2,
+            interactive=False,
+            visible=False,
+        )
+
+        with gr.Row(visible=False) as election_results_row:
+            with gr.Column():
+                election_gallery = gr.Gallery(
+                    label="Winner & Runner-Up",
+                    columns=2,
+                    height=300,
+                    interactive=False,
+                )
+
+            with gr.Column():
+                tags_checkboxgroup = gr.CheckboxGroup(
+                    label="Select Tags (click to select)",
+                    choices=[],
+                )
+                explanation_textbox = gr.Textbox(
+                    label="Explanation",
+                    lines=3,
+                    interactive=False,
+                )
+
     # Wire image refresh events (two-step: show row, then set values)
     image_refresh_button.click(
         fn=_show_image_row_if_images_exist,
@@ -217,4 +264,10 @@ def create_chat_area(image_paths_state: gr.State) -> ChatAreaComponents:
         image_editor_1=image_editor_1,
         image_editor_2=image_editor_2,
         image_status_display=image_status_display,
+        run_election_button=run_election_button,
+        election_status=election_status,
+        election_results_row=election_results_row,
+        election_gallery=election_gallery,
+        tags_checkboxgroup=tags_checkboxgroup,
+        explanation_textbox=explanation_textbox,
     )
