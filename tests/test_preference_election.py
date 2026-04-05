@@ -324,8 +324,15 @@ class TestFullElection:
         mock_tags.return_value = ["tag1", "tag2"]
 
         pref = PreferenceData(50, [], [], "")
-        result = run_full_election(pref, "lmstudio", {})
+        gen = run_full_election(pref, "lmstudio", {})
+        result = None
+        try:
+            while True:
+                _ = next(gen)
+        except StopIteration as e:
+            result = e.value
 
+        assert result is not None
         assert result.winner_image is not None
         assert result.runner_up_image is not None
 
@@ -355,7 +362,14 @@ class TestFullElection:
         mock_tags.return_value = ["tag1", "tag2"]
 
         pref = PreferenceData(50, [], [], "")
-        result = run_full_election(pref, "lmstudio", {})
+        gen = run_full_election(pref, "lmstudio", {})
+        result = None
+        try:
+            while True:
+                _ = next(gen)
+        except StopIteration as e:
+            result = e.value
 
+        assert result is not None
         assert result.winner_image is not None
         assert result.runner_up_image is not None

@@ -20,7 +20,7 @@ import json
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 
 import numpy as np
 
@@ -540,40 +540,52 @@ def run_full_election(
     preference: PreferenceData,
     provider_type: str,
     config: dict[str, str],
-) -> ElectionResult:
+) -> Generator[str, None, ElectionResult]:
     """Run a complete preference election tournament.
+
+    Yields progress messages at each stage.
 
     Args:
         preference: User preference data.
         provider_type: Provider type string.
         config: Provider configuration dict.
 
+    Yields:
+        Status messages about election progress.
+
     Returns:
         ElectionResult with winner, runner-up, tags, and explanation.
 
     Example:
         >>> pref = PreferenceData(50, [], [], "")
+        >>> for status in run_full_election(pref, "lmstudio", {}):
+        ...     print(status)
         >>> result = run_full_election(pref, "lmstudio", {})
     """
+    yield "Scanning images from input/..."
     image_paths = scan_all_images()
     if len(image_paths) < 2:
         raise ValueError("Need at least 2 images in input/ directory")
 
+    yield f"Loading {len(image_paths)} images..."
     images = load_image_pair(image_paths)
     if len(images) < 2:
         raise ValueError("Could not load at least 2 images from input/")
 
+    yield f"Starting tournament with {len(images)} images"
     byes = []
     round_num = 0
 
     while len(images) > 2:
         round_num += 1
+        yield f"Round {round_num}: {len(images)} images competing"
         winners, new_byes = run_tournament_round(
             images, byes, preference, provider_type, config
         )
         images = winners
         byes = new_byes
 
+    yield "Final round: determining winner..."
     if len(images) == 2:
         img_a, img_b = images[0], images[1]
     elif len(images) == 1 and len(byes) >= 1:
@@ -594,7 +606,9 @@ def run_full_election(
 
     final_reason = final_match.reason
 
+    yield "Generating tags for winner..."
     winner_tags = generate_tags_for_image(winner_image, provider_type, config)
+    yield "Generating tags for runner-up..."
     runner_up_tags = generate_tags_for_image(runner_up_image, provider_type, config)
 
     explanation = f"Winner chosen because: {final_reason}"

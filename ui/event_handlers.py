@@ -202,14 +202,31 @@ def wire_events(
         yield (
             gr.update(visible=True, value="Starting election..."),
             gr.update(visible=False),
-            gr.update(visible=False),
             gr.update(visible=False, value=[]),
             [],
             "",
         )
 
         try:
-            result = run_full_election(pref, provider, config)
+            progress_messages = []
+            generator = run_full_election(pref, provider, config)
+            result = None
+
+            while True:
+                try:
+                    progress_msg = next(generator)
+                    progress_messages.append(progress_msg)
+                    last_msg = progress_msg
+                    yield (
+                        gr.update(visible=True, value=last_msg),
+                        gr.update(visible=False),
+                        gr.update(visible=False, value=[]),
+                        [],
+                        "",
+                    )
+                except StopIteration as e:
+                    result = e.value
+                    break
 
             all_tags = get_all_tags(result.winner_tags, result.runner_up_tags)
 
@@ -221,7 +238,6 @@ def wire_events(
             yield (
                 gr.update(visible=True, value="Election complete!"),
                 gr.update(visible=True),
-                gr.update(visible=True),
                 gr.update(visible=True, value=gallery_images),
                 all_tags,
                 result.explanation,
@@ -230,7 +246,6 @@ def wire_events(
         except Exception as e:
             yield (
                 gr.update(visible=True, value=f"Error: {str(e)}"),
-                gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=False, value=[]),
                 [],
