@@ -232,11 +232,13 @@ def create_chat_area(image_paths_state: gr.State) -> ChatAreaComponents:
                 tags_checkboxgroup = gr.CheckboxGroup(
                     label="Select Tags (click to select)",
                     choices=[],
+                    interactive=True
                 )
                 explanation_textbox = gr.Textbox(
                     label="Explanation",
                     lines=3,
                     interactive=False,
+                    max_lines=3
                 )
 
     # Wire image refresh events (two-step: show row, then set values)

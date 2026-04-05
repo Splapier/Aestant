@@ -203,7 +203,7 @@ def wire_events(
             gr.update(visible=True, value="Starting election..."),
             gr.update(visible=False),
             gr.update(visible=False, value=[]),
-            [],
+            gr.CheckboxGroup(choices=[]),
             "",
         )
 
@@ -221,7 +221,7 @@ def wire_events(
                         gr.update(visible=True, value=last_msg),
                         gr.update(visible=False),
                         gr.update(visible=False, value=[]),
-                        [],
+                        gr.CheckboxGroup(choices=[]),
                         "",
                     )
                 except StopIteration as e:
@@ -239,7 +239,7 @@ def wire_events(
                 gr.update(visible=True, value="Election complete!"),
                 gr.update(visible=True),
                 gr.update(visible=True, value=gallery_images),
-                all_tags,
+                gr.CheckboxGroup(choices=all_tags),
                 result.explanation,
             )
 
@@ -248,7 +248,7 @@ def wire_events(
                 gr.update(visible=True, value=f"Error: {str(e)}"),
                 gr.update(visible=False),
                 gr.update(visible=False, value=[]),
-                [],
+                gr.CheckboxGroup(choices=[]),
                 "",
             )
 
