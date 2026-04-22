@@ -15,6 +15,7 @@ from chatbot.config_manager import (
     load_provider_config,
     save_provider_config,
 )
+from ui.schema_viewer import create_schema_viewer_tab
 
 
 def _update_endpoint_state(endpoint_val: str, current_state: str) -> str:
@@ -27,9 +28,7 @@ def _update_model_state(model_val: str | None, current_state: str) -> str:
     return model_val if model_val else ""
 
 
-def _save_config_handler(
-    endpoint_val: str, model_val: str, provider: str
-) -> tuple[str, str]:
+def _save_config_handler(endpoint_val: str, model_val: str, provider: str) -> str:
     """Save provider configuration to disk."""
     config = {
         "endpoint_url": endpoint_val.strip() if endpoint_val else "",
@@ -40,10 +39,10 @@ def _save_config_handler(
 
     if success:
         gr.Info("Configuration saved successfully!")
-        return f"✅ Configuration saved for {provider}", ""
+        return f"✅ Configuration saved for {provider}"
     else:
         gr.Error("Failed to save configuration")
-        return f"❌ Failed to save configuration for {provider}", ""
+        return f"❌ Failed to save configuration for {provider}"
 
 
 def _revert_config_handler(provider: str) -> tuple[str, str, str]:
@@ -83,7 +82,6 @@ def create_sidebar(
     models_state: gr.State,
     endpoint_state: gr.State,
     model_state: gr.State,
-    prompt_input: gr.Textbox,
 ) -> gr.Radio:
     """Create the sidebar with provider selection and dynamic config panel.
 
@@ -94,7 +92,6 @@ def create_sidebar(
         models_state: Gradio state for available models list.
         endpoint_state: Gradio state for current endpoint URL.
         model_state: Gradio state for current model name.
-        prompt_input: Prompt textbox (referenced by save handler output).
 
     Returns:
         The provider_selector Radio component for external event wiring.
@@ -232,7 +229,7 @@ def create_sidebar(
             save_button.click(
                 fn=_save_config_handler,
                 inputs=[endpoint_input, model_dropdown, provider_selector],
-                outputs=[status_display, prompt_input],
+                outputs=[status_display],
             )
 
             # Wire up revert button
@@ -256,5 +253,24 @@ def create_sidebar(
                 inputs=[model_dropdown, model_state],
                 outputs=model_state,
             )
+
+    with gr.Tab("Schema"):
+        gr.Markdown("### Master Schema")
+        gr.Markdown(
+            "View and edit schema keys with their parent hierarchy. "
+            "Users can add keys under level 1+ parents and delete their own additions."
+        )
+        result = create_schema_viewer_tab()
+        (
+            schema_viewer,
+            schema_refresh,
+            add_parent,
+            add_key,
+            add_type,
+            add_desc,
+            add_button,
+            delete_path,
+            delete_button,
+        ) = result
 
     return provider_selector

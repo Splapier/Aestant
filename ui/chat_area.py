@@ -28,36 +28,20 @@ class ChatAreaComponents:
     """Container for components created in the chat area.
 
     Attributes:
-        chatbot_component: The chatbot display component.
-        prompt_input: User message input textbox.
-        send_button: Button to submit messages.
-        clear_button: Button to clear chat history.
         image_editors_row: Row container for image editors (for visibility control).
         image_editor_1: First HTML rectangle tool component.
         image_editor_2: Second HTML rectangle tool component.
         image_status_display: Status message for image loading.
         run_election_button: Button to run preference election.
         election_status: Status display for election progress.
-        election_results_row: Row containing election results.
-        election_gallery: Gallery showing winner/runner-up.
-        tags_checkboxgroup: Selectable tags for final images.
-        explanation_textbox: Explanation of winner choice.
     """
 
-    chatbot_component: gr.Chatbot
-    prompt_input: gr.Textbox
-    send_button: gr.Button
-    clear_button: gr.Button
     image_editors_row: gr.Row
     image_editor_1: gr.HTML
     image_editor_2: gr.HTML
     image_status_display: gr.Markdown
     run_election_button: gr.Button
     election_status: gr.Textbox
-    election_results_row: gr.Row
-    election_gallery: gr.Gallery
-    tags_checkboxgroup: gr.CheckboxGroup
-    explanation_textbox: gr.Textbox
 
 
 def _load_initial_images() -> list:
@@ -132,8 +116,6 @@ def create_chat_area(image_paths_state: gr.State) -> ChatAreaComponents:
         ChatAreaComponents containing all created components.
     """
     with gr.Column(scale=3):
-        chatbot_component = gr.Chatbot(label="Conversation", height=500)
-
         # Image annotation section
         gr.Markdown("## Image Annotation (Optional)")
         gr.Markdown(
@@ -192,18 +174,6 @@ def create_chat_area(image_paths_state: gr.State) -> ChatAreaComponents:
                 visible=len(initial_images) >= 2,
             )
 
-        # Input and buttons
-        prompt_input = gr.Textbox(
-            label="Your Message",
-            lines=2,
-            placeholder="Type your message here...",
-            container=True,
-        )
-
-        with gr.Row():
-            send_button = gr.Button("Send", variant="primary")
-            clear_button = gr.Button("Clear Chat", variant="secondary")
-
         gr.Markdown("---")
         gr.Markdown("## Preference Election")
 
@@ -218,28 +188,6 @@ def create_chat_area(image_paths_state: gr.State) -> ChatAreaComponents:
             interactive=False,
             visible=False,
         )
-
-        with gr.Row(visible=False) as election_results_row:
-            with gr.Column():
-                election_gallery = gr.Gallery(
-                    label="Winner & Runner-Up",
-                    columns=2,
-                    height=300,
-                    interactive=False,
-                )
-
-            with gr.Column():
-                tags_checkboxgroup = gr.CheckboxGroup(
-                    label="Select Tags (click to select)",
-                    choices=[],
-                    interactive=True
-                )
-                explanation_textbox = gr.Textbox(
-                    label="Explanation",
-                    lines=3,
-                    interactive=False,
-                    max_lines=3
-                )
 
     # Wire image refresh events (two-step: show row, then set values)
     image_refresh_button.click(
@@ -258,18 +206,10 @@ def create_chat_area(image_paths_state: gr.State) -> ChatAreaComponents:
     )
 
     return ChatAreaComponents(
-        chatbot_component=chatbot_component,
-        prompt_input=prompt_input,
-        send_button=send_button,
-        clear_button=clear_button,
         image_editors_row=image_editors_row,
         image_editor_1=image_editor_1,
         image_editor_2=image_editor_2,
         image_status_display=image_status_display,
         run_election_button=run_election_button,
         election_status=election_status,
-        election_results_row=election_results_row,
-        election_gallery=election_gallery,
-        tags_checkboxgroup=tags_checkboxgroup,
-        explanation_textbox=explanation_textbox,
     )

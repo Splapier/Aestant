@@ -37,7 +37,7 @@ def create_chat_app() -> gr.Blocks:
         gr.Markdown("# 🤖 Modular LLM Chat Application")
 
         with gr.Row():
-            # Chat area created first so prompt_input exists for sidebar wiring
+            # Chat area created first so election button exists for wiring
             chat = create_chat_area(
                 image_paths_state=state.image_paths_state,
             )
@@ -46,7 +46,6 @@ def create_chat_app() -> gr.Blocks:
                 models_state=state.models_state,
                 endpoint_state=state.endpoint_state,
                 model_state=state.model_state,
-                prompt_input=chat.prompt_input,
             )
 
         wire_events(

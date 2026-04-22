@@ -606,18 +606,13 @@ def run_full_election(
 
     final_reason = final_match.reason
 
-    yield "Generating tags for winner..."
-    winner_tags = generate_tags_for_image(winner_image, provider_type, config)
-    yield "Generating tags for runner-up..."
-    runner_up_tags = generate_tags_for_image(runner_up_image, provider_type, config)
-
     explanation = f"Winner chosen because: {final_reason}"
 
     return ElectionResult(
         winner_image=winner_image,
         runner_up_image=runner_up_image,
-        winner_tags=winner_tags,
-        runner_up_tags=runner_up_tags,
+        winner_tags=[],
+        runner_up_tags=[],
         explanation=explanation,
     )
 
