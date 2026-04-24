@@ -1,7 +1,7 @@
 """Schema management for tagging system.
 
 This module provides functionality for:
-- Loading and saving the master schema JSON
+- Loading and saving the master schema (YAML or JSON)
 - Validating schema modifications against protected keys
 - Checking whether changes are allowed
 
@@ -22,46 +22,159 @@ from pathlib import Path
 from typing import Any
 from copy import deepcopy
 
+try:
+    from ruamel.yaml import YAML as _YAML
+
+    def _create_yaml() -> Any:
+        yaml = _YAML()  # type: ignore
+        yaml.preserve_quotes = True
+        return yaml
+
+    _ruamel_yaml = _create_yaml()
+    RUAMEL_AVAILABLE = True
+except ImportError:
+    RUAMEL_AVAILABLE = False
+
+    def _create_yaml() -> None:
+        return None
+
+    _ruamel_yaml = None
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MASTER_SCHEMA_PATH = PROJECT_ROOT / "master_schema.json"
+MASTER_SCHEMA_YAML_PATH = PROJECT_ROOT / "master_schema.yaml"
+MASTER_SCHEMA_JSON_PATH = PROJECT_ROOT / "master_schema.json"
+DEFAULT_SCHEMA_PATH = (
+    MASTER_SCHEMA_YAML_PATH
+    if MASTER_SCHEMA_YAML_PATH.exists()
+    else MASTER_SCHEMA_JSON_PATH
+)
 
 
-def get_default_schema() -> dict[str, Any]:
+def _load_yaml_with_comments(path: Path) -> tuple[dict[str, Any], Any]:
+    """Load YAML while preserving comments.
+
+    Args:
+        path: Path to YAML file.
+
+    Returns:
+        Tuple of (data dict, yaml instance for saving).
+    """
+    yaml = _create_yaml()
+    if yaml is None:
+        return {}, None
+    yaml.preserve_quotes = True
+    with open(path, "r") as f:
+        data = yaml.load(f)
+    return data, yaml
+
+
+def _extract_descriptions_from_yaml(
+    schema: dict[str, Any], path: Path
+) -> dict[str, str]:
+    """Extract descriptions from YAML comments.
+
+    Args:
+        schema: The schema dictionary.
+        path: Path to the YAML file.
+
+    Returns:
+        Dictionary mapping dot-separated paths to their descriptions from comments.
+    """
+    descriptions: dict[str, str] = {}
+    if not RUAMEL_AVAILABLE or not path.exists():
+        return descriptions
+
+    with open(path, "r") as f:
+        data = _ruamel_yaml.load(f)
+
+    def walk_node(node: Any, current_path: list[str]) -> None:
+        if node is None:
+            return
+
+        if isinstance(node, dict):
+            for key, value in node.items():
+                new_path = current_path + [key]
+                path_str = ".".join(new_path)
+
+                if isinstance(value, dict) and "type" in value:
+                    if hasattr(value, "ca") and value.ca and value.ca.comment:
+                        comment_list = value.ca.comment
+                        if len(comment_list) > 1 and comment_list[1]:
+                            for token in comment_list[1]:
+                                if hasattr(token, "value"):
+                                    desc = token.value.strip().lstrip("#").strip()
+                                    if desc:
+                                        descriptions[path_str] = desc
+                                        break
+                    walk_node(value, new_path)
+                else:
+                    walk_node(value, new_path)
+
+    walk_node(data, [])
+    return descriptions
+
+
+def get_descriptions_from_yaml() -> dict[str, str]:
+    """Get descriptions extracted from YAML comments.
+
+    Returns:
+        Dictionary mapping dot-separated paths to their descriptions.
+    """
+    if DEFAULT_SCHEMA_PATH.suffix != ".yaml":
+        return {}
+
+    return _extract_descriptions_from_yaml({}, DEFAULT_SCHEMA_PATH)
+
+
+def _get_default_schema() -> dict[str, Any]:
     """Return the default blank master schema structure.
 
     Returns:
         Dictionary containing schema from file, or empty dict if file doesn't exist.
     """
-    if MASTER_SCHEMA_PATH.exists():
-        with open(MASTER_SCHEMA_PATH, "r") as f:
-            return json.load(f)
+    if DEFAULT_SCHEMA_PATH.exists():
+        if DEFAULT_SCHEMA_PATH.suffix == ".yaml" and RUAMEL_AVAILABLE:
+            with open(DEFAULT_SCHEMA_PATH, "r") as f:
+                return _ruamel_yaml.load(f)
+        else:
+            with open(DEFAULT_SCHEMA_PATH, "r") as f:
+                return json.load(f)
     return {}
 
 
 def load_master_schema() -> dict[str, Any]:
-    """Load the master schema from JSON file.
+    """Load the master schema from file (YAML with comments, or JSON).
 
     If the file doesn't exist, creates it with the default schema.
+    Prefers YAML if available, otherwise falls back to JSON.
 
     Returns:
-        Master schema dictionary.
+        Master schema dictionary (without descriptions, which are in comments).
 
     Example:
         >>> schema = load_master_schema()
         >>> "body_regions" in schema
         True
     """
-    if not MASTER_SCHEMA_PATH.exists():
-        default_schema = get_default_schema()
+    if not DEFAULT_SCHEMA_PATH.exists():
+        default_schema = _get_default_schema()
         save_master_schema(default_schema)
         return default_schema
 
-    with open(MASTER_SCHEMA_PATH, "r") as f:
-        return json.load(f)
+    if DEFAULT_SCHEMA_PATH.suffix == ".yaml" and RUAMEL_AVAILABLE:
+        with open(DEFAULT_SCHEMA_PATH, "r") as f:
+            return _ruamel_yaml.load(f)
+    else:
+        with open(DEFAULT_SCHEMA_PATH, "r") as f:
+            return json.load(f)
 
 
 def save_master_schema(schema: dict[str, Any]) -> None:
-    """Save the master schema to JSON file.
+    """Save the master schema to file.
+
+    Uses YAML format if available (preserves comments), otherwise JSON.
+    Note: When saving to YAML, descriptions stored in the schema dict
+    will be lost (they should be kept as comments in the YAML file).
 
     Args:
         schema: The schema dictionary to save.
@@ -70,8 +183,12 @@ def save_master_schema(schema: dict[str, Any]) -> None:
         >>> schema = load_master_schema()
         >>> save_master_schema(schema)
     """
-    with open(MASTER_SCHEMA_PATH, "w") as f:
-        json.dump(schema, f, indent=4)
+    if RUAMEL_AVAILABLE and DEFAULT_SCHEMA_PATH.suffix == ".yaml":
+        with open(DEFAULT_SCHEMA_PATH, "w") as f:
+            _ruamel_yaml.dump(schema, f)
+    else:
+        with open(DEFAULT_SCHEMA_PATH, "w") as f:
+            json.dump(schema, f, indent=4)
 
 
 def get_protected_keys_at_level(
@@ -327,7 +444,7 @@ def flatten_schema_keys(
         new_prefix = f"{prefix}.{key}" if prefix else key
 
         if isinstance(value, dict):
-            if "type" in value and "description" in value:
+            if "type" in value:
                 result[new_prefix] = value
             else:
                 result.update(flatten_schema_keys(value, new_prefix))
@@ -381,5 +498,12 @@ __all__ = [
     "validate_schema_change",
     "flatten_schema_keys",
     "get_field_descriptions",
+    "get_descriptions_from_yaml",
     "init_schema_schema",
+    "is_yaml_schema",
 ]
+
+
+def is_yaml_schema() -> bool:
+    """Check if the default schema is YAML format."""
+    return DEFAULT_SCHEMA_PATH.suffix == ".yaml"

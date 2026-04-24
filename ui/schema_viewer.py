@@ -7,6 +7,7 @@ Users can add new keys under lower keys and edit/delete their own additions.
 
 import gradio as gr
 from copy import deepcopy
+from typing import Any
 
 from chatbot.schema_manager import (
     load_master_schema,
@@ -17,6 +18,8 @@ from chatbot.schema_manager import (
     set_key_at_path,
     delete_key_at_path,
     validate_schema_change,
+    get_descriptions_from_yaml,
+    is_yaml_schema,
 )
 
 
@@ -46,7 +49,9 @@ def _build_hierarchical_groups(
 
 
 def get_valid_parent_paths(schema: dict) -> list[str]:
-    """Get all paths that can have child keys (level 0 or 1 with dict values).
+    """Get all paths that can have child keys (level 1 keys with dict values).
+
+    Only level 1 keys are valid for adding children (level 0 are protected).
 
     Args:
         schema: The master schema dictionary.
@@ -57,7 +62,6 @@ def get_valid_parent_paths(schema: dict) -> list[str]:
     parents = []
     for key, value in schema.items():
         if isinstance(value, dict) and value:
-            parents.append(key)
             for child, child_val in value.items():
                 if isinstance(child_val, dict) and child_val:
                     parents.append(f"{key}.{child}")
@@ -99,6 +103,7 @@ def _render_group_html(
     group_name: str,
     items: dict[str, dict],
     group_expanded: bool = True,
+    yaml_descriptions: dict[str, str] | None = None,
 ) -> str:
     """Render a collapsible group as HTML.
 
@@ -106,12 +111,14 @@ def _render_group_html(
         group_name: Name of the parent group (e.g., "hair", "eyes").
         items: Dict of {path: field_def} for keys under this group.
         group_expanded: Whether the group should start expanded.
+        yaml_descriptions: Descriptions extracted from YAML comments.
 
     Returns:
         HTML string for the group accordion.
     """
     display_state = "expanded" if group_expanded else "collapsed"
     items_html = ""
+    yaml_descriptions = yaml_descriptions or {}
 
     for path, field_def in sorted(items.items()):
         path_parts = parse_key_path(path)
@@ -122,8 +129,7 @@ def _render_group_html(
 
         field_type = field_def.get("type", "string")
         default_val = field_def.get("default")
-        description = field_def.get("description", "")
-        confidence = field_def.get("confidence_score", 0.0)
+        description = yaml_descriptions.get(path, field_def.get("description", ""))
 
         can_delete = len(path_parts) >= 2
 
@@ -152,11 +158,7 @@ def _render_group_html(
                 </div>
                 <div class="schema-field">
                     <label>Description:</label>
-                    <input type="text" class="schema-description" data-path="{path}" value="{description}">
-                </div>
-                <div class="schema-field">
-                    <label>Confidence:</label>
-                    <input type="number" step="0.1" min="0" max="1" class="schema-confidence" data-path="{path}" value="{confidence}">
+                    <span class="schema-description-readonly">{description}</span>
                 </div>
             </div>
         </div>
@@ -267,14 +269,17 @@ _CSS = """
     font-size: 12px;
 }
 .schema-item-details {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 4px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     font-size: 12px;
+    padding: 8px 12px;
 }
 .schema-item-details label {
     color: #999;
-    text-align: right;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
 }
 .schema-item-details input,
 .schema-item-details select {
@@ -292,6 +297,15 @@ _CSS = """
 }
 .schema-item-details select {
     cursor: pointer;
+}
+.schema-description-readonly {
+    color: #e0e0e0;
+    background: #2a2a2a;
+    padding: 4px 8px;
+    border: 1px solid #444;
+    border-radius: 3px;
+    display: inline-block;
+    min-width: 200px;
 }
 .schema-add-form {
     border: 1px solid #007bff;
@@ -404,12 +418,9 @@ function initSchemaViewer() {
     
     // Set up blur handlers for saving fields
     document.addEventListener('change', function(e) {
-        if (e.target.classList.contains('schema-default') || 
-            e.target.classList.contains('schema-description') ||
-            e.target.classList.contains('schema-confidence')) {
+        if (e.target.classList.contains('schema-default')) {
             const path = e.target.dataset.path;
-            const field = e.target.classList.contains('schema-default') ? 'default' :
-                         e.target.classList.contains('schema-description') ? 'description' : 'confidence_score';
+            const field = 'default';
             const value = e.target.value;
             // Trigger Gradio update via hidden input
             const hiddenInput = document.getElementById('schema-update-input');
@@ -436,11 +447,14 @@ def _load_schema_html(schema: dict, available_parents: list[str] | None = None) 
         Complete HTML string for the schema viewer.
     """
     groups = _build_hierarchical_groups(schema)
+    yaml_descriptions = get_descriptions_from_yaml()
 
     groups_html = ""
     for group_name, items in sorted(groups.items()):
         if items:
-            groups_html += _render_group_html(group_name, items)
+            groups_html += _render_group_html(
+                group_name, items, yaml_descriptions=yaml_descriptions
+            )
 
     if available_parents is None:
         available_parents = get_valid_parent_paths(schema)
@@ -469,19 +483,20 @@ def add_schema_key(
         parent_path: Parent path (e.g., "head.hair").
         key_name: Name of new key to add.
         field_type: Type of the field (string, boolean, array).
-        description: Description of the field.
+        description: Description of the field (ignored for YAML schema).
 
     Returns:
         Tuple of (html_update, status_message).
     """
-    new_field = {
+    new_field: dict[str, Any] = {
         "type": field_type,
         "default": None,
-        "confidence_score": 0.0,
-        "description": description,
     }
+    if not is_yaml_schema():
+        new_field["description"] = description
 
-    full_path = f"{parent_path}.{key_name}"
+    key_name_normalized = key_name.lower().replace(" ", "_")
+    full_path = f"{parent_path}.{key_name_normalized}"
     allowed, msg = validate_schema_change({}, {}, "add", full_path)
 
     if not allowed:
@@ -492,8 +507,10 @@ def add_schema_key(
         schema = load_master_schema()
         set_key_at_path(schema, full_path, new_field)
         save_master_schema(schema)
-        gr.Info(f"Added {key_name} under {parent_path}")
-        return gr.update(value=_load_schema_html(schema)), f"Added {key_name}"
+        gr.Info(f"Added {key_name_normalized} under {parent_path}")
+        return gr.update(
+            value=_load_schema_html(schema)
+        ), f"Added {key_name_normalized}"
     except Exception as e:
         gr.Error(f"Failed to add key: {str(e)}")
         return gr.update(), f"Failed: {str(e)}"
@@ -502,13 +519,13 @@ def add_schema_key(
 def update_schema_field(
     path: str,
     field: str,
-    value: str | float,
+    value: Any,
 ) -> tuple[gr.update, str]:
     """Update a field value.
 
     Args:
         path: Dot-separated path to the key.
-        field: Field name to update (type, default, description, confidence_score).
+        field: Field name to update (type, default).
         value: New value for the field.
 
     Returns:
@@ -522,12 +539,10 @@ def update_schema_field(
             gr.Warning(f"Key not found: {path}")
             return gr.update(), f"Key not found: {path}"
 
-        if field == "confidence_score":
-            value = float(value)
-        elif field == "default":
+        if field == "default":
             if value == "" or value == "null":
                 value = None
-            elif current.get("type") == "boolean":
+            elif current.get("type") == "boolean" and value is not None:
                 value = value.lower() in ("true", "1", "yes")
 
         current[field] = value
@@ -643,8 +658,11 @@ def create_schema_viewer_tab() -> tuple[
         )
         add_desc = gr.Textbox(
             label="Description",
-            placeholder="Field description",
+            placeholder="Field description (read-only for YAML)"
+            if is_yaml_schema()
+            else "Field description",
             scale=2,
+            interactive=not is_yaml_schema(),
         )
         add_button = gr.Button("➕ Add Key", variant="primary", scale=1)
 
@@ -670,14 +688,16 @@ def create_schema_viewer_tab() -> tuple[
     ) -> tuple[gr.update, str]:
         if not key_name or not key_name.strip():
             return gr.update(), "Please enter a key name"
-        return add_schema_key(parent, key_name.strip(), field_type, description)
+        desc_to_use = "" if is_yaml_schema() else description
+        return add_schema_key(parent, key_name.strip(), field_type, desc_to_use)
 
     add_button.click(
         fn=_handle_add,
         inputs=[add_parent, add_key, add_type, add_desc],
-        outputs=[schema_viewer, add_key],
-    ).then(
-        fn=lambda: ("",),
+        outputs=[schema_viewer],
+    )
+    add_button.click(
+        fn=lambda: "",
         outputs=[add_key],
     )
 

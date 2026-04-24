@@ -28,7 +28,6 @@ def sample_schema():
                 "color": {
                     "type": "string",
                     "default": None,
-                    "confidence_score": 0.0,
                     "description": "Color of the hair.",
                 },
             },
@@ -36,7 +35,6 @@ def sample_schema():
                 "color": {
                     "type": "string",
                     "default": None,
-                    "confidence_score": 0.0,
                     "description": "Color of the eyes.",
                 },
             },
@@ -46,7 +44,6 @@ def sample_schema():
                 "top": {
                     "type": "string",
                     "default": None,
-                    "confidence_score": 0.0,
                     "description": "Type of top worn.",
                 },
             },
@@ -56,7 +53,6 @@ def sample_schema():
                 "pants": {
                     "type": "string",
                     "default": None,
-                    "confidence_score": 0.0,
                     "description": "Type of pants.",
                 },
             },
@@ -133,14 +129,15 @@ class TestSchemaLoading:
 
         import chatbot.schema_manager
 
-        original = chatbot.schema_manager.MASTER_SCHEMA_PATH
-        chatbot.schema_manager.MASTER_SCHEMA_PATH = schema_path
+        original_default = chatbot.schema_manager.DEFAULT_SCHEMA_PATH
+        original_yaml = chatbot.schema_manager.MASTER_SCHEMA_YAML_PATH
+        chatbot.schema_manager.DEFAULT_SCHEMA_PATH = schema_path
         try:
             schema = load_master_schema()
             assert isinstance(schema, dict)
             assert "head" in schema
         finally:
-            chatbot.schema_manager.MASTER_SCHEMA_PATH = original
+            chatbot.schema_manager.DEFAULT_SCHEMA_PATH = original_default
 
     def test_load_creates_default_if_missing(self, tmp_path):
         schema_path = tmp_path / "master_schema.json"
@@ -148,14 +145,14 @@ class TestSchemaLoading:
 
         import chatbot.schema_manager
 
-        original = chatbot.schema_manager.MASTER_SCHEMA_PATH
-        chatbot.schema_manager.MASTER_SCHEMA_PATH = schema_path
+        original_default = chatbot.schema_manager.DEFAULT_SCHEMA_PATH
+        chatbot.schema_manager.DEFAULT_SCHEMA_PATH = schema_path
         try:
             schema = load_master_schema()
             assert schema_path.exists()
             assert isinstance(schema, dict)
         finally:
-            chatbot.schema_manager.MASTER_SCHEMA_PATH = original
+            chatbot.schema_manager.DEFAULT_SCHEMA_PATH = original_default
 
 
 class TestKeyOperations:
@@ -175,7 +172,6 @@ class TestKeyOperations:
         new_field = {
             "type": "string",
             "default": None,
-            "confidence_score": 0.0,
             "description": "Length of the hair.",
         }
         set_key_at_path(sample_schema, "head.hair.length", new_field)
@@ -245,7 +241,7 @@ class TestFlattenSchema:
         assert "head.hair.color" in flat
         assert "head.eyes.color" in flat
         assert "upper_body.clothing.top" in flat
-        assert "lower_body.legs.pantyhose" in flat
+        assert "lower_body.legs.pants" in flat
 
     def test_flatten_excludes_branch_nodes(self, sample_schema):
         flat = flatten_schema_keys(sample_schema)
@@ -342,7 +338,6 @@ class TestCanDeleteUserAddedKeys:
             {
                 "type": "string",
                 "default": None,
-                "confidence_score": 0.0,
                 "description": "User added trait",
             },
         )

@@ -27,7 +27,6 @@ def sample_schema():
                 "color": {
                     "type": "string",
                     "default": None,
-                    "confidence_score": 0.0,
                     "description": "Color of the hair.",
                 },
             },
@@ -35,7 +34,6 @@ def sample_schema():
                 "color": {
                     "type": "string",
                     "default": None,
-                    "confidence_score": 0.0,
                     "description": "Color of the eyes.",
                 },
             },
@@ -45,7 +43,6 @@ def sample_schema():
                 "top": {
                     "type": "string",
                     "default": None,
-                    "confidence_score": 0.0,
                     "description": "Type of top worn.",
                 },
             },
@@ -55,7 +52,6 @@ def sample_schema():
                 "pantyhose": {
                     "type": "string",
                     "default": None,
-                    "confidence_score": 0.0,
                     "description": "Type of pantyhose.",
                 },
             },
@@ -130,7 +126,6 @@ class TestGetSetKeyAtPath:
         new_field = {
             "type": "string",
             "default": None,
-            "confidence_score": 0.0,
             "description": "New field",
         }
         set_key_at_path(sample_schema, "head.hair.length", new_field)
@@ -243,12 +238,17 @@ class TestLoadSaveSchema:
         temp_path = tmp_path / "test_schema.json"
         import chatbot.schema_manager
 
-        original = chatbot.schema_manager.MASTER_SCHEMA_PATH
-        chatbot.schema_manager.MASTER_SCHEMA_PATH = temp_path
+        original_yaml = chatbot.schema_manager.MASTER_SCHEMA_YAML_PATH
+        original_json = chatbot.schema_manager.MASTER_SCHEMA_JSON_PATH
+        original_default = chatbot.schema_manager.DEFAULT_SCHEMA_PATH
+
+        chatbot.schema_manager.MASTER_SCHEMA_JSON_PATH = temp_path
+        chatbot.schema_manager.DEFAULT_SCHEMA_PATH = temp_path
 
         try:
             save_master_schema(sample_schema)
             loaded = load_master_schema()
             assert loaded == sample_schema
         finally:
-            chatbot.schema_manager.MASTER_SCHEMA_PATH = original
+            chatbot.schema_manager.MASTER_SCHEMA_JSON_PATH = original_json
+            chatbot.schema_manager.DEFAULT_SCHEMA_PATH = original_default
