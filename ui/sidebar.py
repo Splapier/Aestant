@@ -16,6 +16,7 @@ from chatbot.config_manager import (
     save_provider_config,
 )
 from ui.schema_viewer import create_schema_viewer_tab
+from ui.tagging_tab import create_tagging_tab
 
 
 def _update_endpoint_state(endpoint_val: str, current_state: str) -> str:
@@ -272,5 +273,17 @@ def create_sidebar(
             delete_path,
             delete_button,
         ) = result
+
+    with gr.Tab("Tagging"):
+        gr.Markdown("### Image Tagging")
+        gr.Markdown(
+            "Tag images for dataset creation. Tagging sends images to VLM for automatic "
+            "annotation. Tagged images are saved as YAML files in the dataset/ directory."
+        )
+        tagging = create_tagging_tab(
+            provider_selector=provider_selector,
+            endpoint_state=endpoint_state,
+            model_state=model_state,
+        )
 
     return provider_selector
