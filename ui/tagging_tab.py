@@ -550,6 +550,11 @@ def create_tagging_tab(
         gr.Markdown("### Add Tag Key")
 
         with gr.Row():
+            search_key_input = gr.Textbox(
+                label="Search keys",
+                placeholder="Type to search...",
+                scale=1,
+            )
             add_key_dropdown = gr.Dropdown(
                 choices=[],
                 label="Select key to add",
@@ -744,6 +749,34 @@ def create_tagging_tab(
     tags_state.change(
         fn=on_tags_changed,
         inputs=[tags_state],
+        outputs=[add_key_dropdown],
+    )
+
+    def handle_search_keys(search_text: str):
+        """Filter schema keys based on search text."""
+        if not search_text:
+            schema = load_master_schema()
+            unfilled = _get_unfilled_schema_keys({}, schema)
+            return gr.update(choices=unfilled, value="")
+
+        search_lower = search_text.lower()
+        schema = load_master_schema()
+        descriptions = get_descriptions_from_yaml()
+        flat_schema = flatten_schema_keys(schema)
+
+        filtered = []
+        for path in flat_schema:
+            path_lower = path.lower()
+            desc = descriptions.get(path, "").lower()
+            if search_lower in path_lower or search_lower in desc:
+                filtered.append(path)
+
+        filtered = sorted(filtered)
+        return gr.update(choices=filtered, value=search_text)
+
+    search_key_input.change(
+        fn=handle_search_keys,
+        inputs=[search_key_input],
         outputs=[add_key_dropdown],
     )
 
