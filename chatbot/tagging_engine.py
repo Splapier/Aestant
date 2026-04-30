@@ -416,10 +416,51 @@ def scan_untagged_images() -> list[str]:
     return sorted(untagged)
 
 
+def scan_all_images() -> list[str]:
+    """Scan input directory for all images regardless of tag status.
+
+    Returns:
+        List of all image paths in the input directory.
+    """
+    ensure_dataset_dir()
+
+    image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
+
+    input_images = [
+        f.absolute()
+        for f in INPUT_DIR.iterdir()
+        if f.is_file() and f.suffix.lower() in image_extensions
+    ]
+
+    return sorted([str(f.absolute()) for f in input_images])
+
+
+def find_first_untagged_index(all_paths: list[str]) -> int:
+    """Find the index of the first untagged image in the list.
+
+    Args:
+        all_paths: List of all image paths.
+
+    Returns:
+        Index of the first untagged image, or 0 if all are tagged or list is empty.
+    """
+    ensure_dataset_dir()
+
+    tagged_stems = {f.stem for f in DATASET_DIR.iterdir() if f.suffix == ".yaml"}
+
+    for i, path in enumerate(all_paths):
+        if Path(path).stem not in tagged_stems:
+            return i
+
+    return 0
+
+
 __all__ = [
     "tag_image_concurrent",
     "save_tagged_dataset",
     "scan_untagged_images",
+    "scan_all_images",
+    "find_first_untagged_index",
     "crop_to_bounding_box",
     "parse_yaml_response",
     "dict_to_yaml_string",

@@ -11,6 +11,8 @@ dependencies = [
     "requests>=2.31.0",
     "pytest>=9.0.2",
     "pytest-playwright>=0.7.2",
+    "transformers>=4.37.0",
+    "torch>=2.1.0",
 ]
 
 [tool.pytest.ini_options]

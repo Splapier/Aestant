@@ -4,7 +4,8 @@ This module provides a dedicated tab for tagging single images:
 - Shows one image at a time from input directory
 - Rectangle drawing tool for bounding box selection
 - Send to Tag button (VLM tagging)
-- Delete and advance button (skips already tagged)
+- Previous/Next navigation (jumps to first untagged by default)
+- Embedding controls for image and tag vectors
 - Editable tag fields display
 - Add key dropdown for unfilled schema keys
 - Status and progress info
@@ -30,6 +31,13 @@ from chatbot.tagging_engine import (
     tag_image_concurrent,
     save_tagged_dataset,
     scan_untagged_images,
+    scan_all_images,
+    find_first_untagged_index,
+)
+from chatbot.embedding_engine import (
+    embed_image,
+    embed_tags,
+    save_embeddings,
 )
 from chatbot.config_manager import load_provider_config
 from chatbot import get_provider
@@ -49,8 +57,11 @@ class TaggingTabComponents:
 
     image_viewer: Any
     tag_button: Any
-    delete_button: Any
+    prev_button: Any
+    next_button: Any
     save_button: Any
+    embed_dropdown: Any
+    embed_button: Any
     status_display: Any
     fields_display: Any
     add_key_dropdown: Any
@@ -66,6 +77,66 @@ class TaggingTabComponents:
 def _scan_and_skip_tagged() -> list[str]:
     """Scan for untagged images."""
     return scan_untagged_images()
+
+
+def _scan_all_and_load() -> tuple[list[str], int]:
+    """Scan all images and find index of first untagged.
+
+    Returns:
+        Tuple of (all_paths, first_untagged_index)
+    """
+    all_paths = scan_all_images()
+    if not all_paths:
+        return [], 0
+    idx = find_first_untagged_index(all_paths)
+    return all_paths, idx
+
+
+def _load_current_image_all(
+    index: int,
+) -> tuple[str, np.ndarray | None, gr.update, str, int]:
+    """Load image at current index using all images list.
+
+    Args:
+        index: Current image index.
+
+    Returns:
+        Tuple of (image_path, image_array, editor_update, status, total_count).
+    """
+    all_paths = scan_all_images()
+
+    if not all_paths:
+        return (
+            "",
+            None,
+            gr.update(visible=False),
+            "No images to tag. Add images to input/ directory.",
+            0,
+        )
+
+    if index < 0:
+        index = len(all_paths) - 1
+    if index >= len(all_paths):
+        index = 0
+
+    image_path = all_paths[index] if all_paths else ""
+    image_array = load_image_as_numpy(image_path) if image_path else None
+
+    tool = RectangleTool(label="Tagging Image", visible=image_array is not None)
+    if image_array is not None:
+        tool.set_background(image_array)
+
+    editor_update = gr.update(
+        value=tool._get_value(),
+        html_template=_HTML_TEMPLATE,
+        css_template=_CSS_TEMPLATE,
+        js_on_load=_JS_TEMPLATE,
+        visible=image_array is not None,
+    )
+
+    status = f"Image {index + 1} of {len(all_paths)}"
+
+    return image_path, image_array, editor_update, status, len(all_paths)
 
 
 def _render_tag_fields_html(
@@ -397,14 +468,14 @@ def _handle_send_to_tag(
         )
 
 
-def _handle_delete_and_next(
+def _handle_next(
     current_index: int,
     current_image_path: str,
     tags: dict,
     raw_responses: dict,
     prompts: dict,
-) -> tuple[int, str, gr.update, str, dict, dict, dict]:
-    """Handle delete and next button click.
+) -> tuple[int, str, gr.update, str, dict, dict, dict, int]:
+    """Handle next button click.
 
     Args:
         current_index: Current image index.
@@ -414,21 +485,18 @@ def _handle_delete_and_next(
         prompts: Current prompts.
 
     Returns:
-        Tuple of (new_index, image_path, editor_update, status, empty_tags, empty_raw, empty_prompts).
+        Tuple of (new_index, image_path, editor_update, status, empty_tags, empty_raw, empty_prompts, total).
     """
     if current_image_path and tags:
         try:
             save_tagged_dataset(current_image_path, tags, raw_responses, prompts)
-        except Exception as e:
+        except Exception:
             pass
 
     next_index = current_index + 1
-    paths = _scan_and_skip_tagged()
-
-    if next_index >= len(paths):
-        next_index = 0
-
-    new_image_path, new_array, editor_update, status = _load_current_image(next_index)
+    new_image_path, new_array, editor_update, status, total = _load_current_image_all(
+        next_index
+    )
 
     return (
         next_index,
@@ -438,6 +506,32 @@ def _handle_delete_and_next(
         {},
         {},
         {},
+        total,
+    )
+
+
+def _handle_prev(
+    current_index: int,
+) -> tuple[int, str, gr.update, str, int]:
+    """Handle previous button click.
+
+    Args:
+        current_index: Current image index.
+
+    Returns:
+        Tuple of (new_index, image_path, editor_update, status, total).
+    """
+    prev_index = current_index - 1
+    new_image_path, new_array, editor_update, status, total = _load_current_image_all(
+        prev_index
+    )
+
+    return (
+        prev_index,
+        new_image_path,
+        editor_update,
+        status,
+        total,
     )
 
 
@@ -471,6 +565,48 @@ def _handle_save_current_tags(
         return f"Error saving: {str(e)[:100]}"
 
 
+def _handle_create_embeddings(
+    image_path: str,
+    tags: dict,
+    embed_type: str,
+) -> str:
+    """Handle embedding creation.
+
+    Args:
+        image_path: Current image path.
+        tags: Current tags.
+        embed_type: One of 'image', 'tags', 'both'.
+
+    Returns:
+        Status message.
+    """
+    if not image_path:
+        return "No image loaded"
+
+    try:
+        image_emb = None
+        tag_emb = None
+
+        if embed_type in ("image", "both"):
+            image_emb = embed_image(image_path)
+
+        if embed_type in ("tags", "both"):
+            if not tags:
+                return "No tags to embed"
+            tag_emb = embed_tags(tags)
+
+        save_embeddings(image_path, image_emb, tag_emb)
+
+        if embed_type == "image":
+            return "Image embedding created"
+        elif embed_type == "tags":
+            return "Tag embedding created"
+        else:
+            return "Both embeddings created"
+    except Exception as e:
+        return f"Embedding error: {str(e)[:100]}"
+
+
 def create_tagging_tab(
     provider_selector: gr.Radio,
     endpoint_state: gr.State,
@@ -486,8 +622,7 @@ def create_tagging_tab(
     Returns:
         TaggingTabComponents containing all created components.
     """
-    initial_paths = _scan_and_skip_tagged()
-    initial_index = 0
+    initial_paths, initial_index = _scan_all_and_load()
 
     if initial_paths:
         initial_image_path = initial_paths[initial_index]
@@ -535,8 +670,17 @@ def create_tagging_tab(
 
         with gr.Row():
             tag_button = gr.Button("🏷️ Send to Tag", variant="primary")
-            delete_button = gr.Button("🗑️ Delete & Next", variant="stop")
+            prev_button = gr.Button("⬅️ Previous", variant="secondary")
+            next_button = gr.Button("➡️ Next", variant="secondary")
             save_button = gr.Button("💾 Save Tags", variant="secondary")
+
+        with gr.Row():
+            embed_dropdown = gr.Dropdown(
+                choices=["Embed Image", "Embed Tags", "Embed Both"],
+                value="Embed Both",
+                label="Embeddings",
+            )
+            embed_button = gr.Button("🔢 Create Embeddings", variant="secondary")
 
         status_display = gr.Markdown(
             value="Ready to tag" if initial_paths else "No images found",
@@ -651,11 +795,11 @@ def create_tagging_tab(
         ],
     )
 
-    def handle_delete_next(idx, img_path, tags, raw_resp, prompts):
-        return _handle_delete_and_next(idx, img_path, tags, raw_resp, prompts)
+    def handle_next(idx, img_path, tags, raw_resp, prompts):
+        return _handle_next(idx, img_path, tags, raw_resp, prompts)
 
-    delete_button.click(
-        fn=handle_delete_next,
+    next_button.click(
+        fn=handle_next,
         inputs=[
             image_index_state,
             image_path_state,
@@ -675,6 +819,32 @@ def create_tagging_tab(
     ).then(
         fn=lambda: '<p class="no-tags">No tags yet. Click "Send to Tag" to analyze this image.</p>',
         outputs=[fields_display],
+    )
+
+    def handle_prev(idx):
+        return _handle_prev(idx)
+
+    prev_button.click(
+        fn=handle_prev,
+        inputs=[image_index_state],
+        outputs=[
+            image_index_state,
+            image_path_state,
+            image_viewer,
+            image_counter,
+        ],
+    ).then(
+        fn=lambda: '<p class="no-tags">No tags yet. Click "Send to Tag" to analyze this image.</p>',
+        outputs=[fields_display],
+    )
+
+    def handle_embed(img_path, tags, embed_type):
+        return _handle_create_embeddings(img_path, tags, embed_type)
+
+    embed_button.click(
+        fn=handle_embed,
+        inputs=[image_path_state, tags_state, embed_dropdown],
+        outputs=[status_display],
     )
 
     save_button.click(
@@ -784,8 +954,11 @@ def create_tagging_tab(
         def __init__(self):
             self.image_viewer = image_viewer
             self.tag_button = tag_button
-            self.delete_button = delete_button
+            self.prev_button = prev_button
+            self.next_button = next_button
             self.save_button = save_button
+            self.embed_dropdown = embed_dropdown
+            self.embed_button = embed_button
             self.status_display = status_display
             self.fields_display = fields_display
             self.add_key_dropdown = add_key_dropdown
