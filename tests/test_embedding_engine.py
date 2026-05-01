@@ -37,12 +37,12 @@ def mock_embedding_engine():
     mock_processor = MagicMock()
 
     mock_embedding = np.random.randn(1, 512).astype(np.float32)
-    mock_model.get_image_features.return_value = MagicMock(
+    mock_outputs = MagicMock()
+    mock_outputs.pooler_output = MagicMock(
         detach=lambda: MagicMock(numpy=lambda: mock_embedding)
     )
-    mock_model.get_text_features.return_value = MagicMock(
-        detach=lambda: MagicMock(numpy=lambda: mock_embedding)
-    )
+    mock_model.get_image_features.return_value = mock_outputs
+    mock_model.get_text_features.return_value = mock_outputs
     mock_model.eval.return_value = mock_model
 
     with (

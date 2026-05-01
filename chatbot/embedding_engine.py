@@ -19,6 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
+import torch
 from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
 
@@ -59,8 +60,10 @@ def embed_image(image_path: str) -> list[float]:
     image = Image.open(image_path).convert("RGB")
     inputs = processor(images=image, return_tensors="pt")
 
-    with model.eval():
-        features = model.get_image_features(**inputs)
+    model.eval()
+    with torch.no_grad():
+        outputs = model.get_image_features(**inputs)
+        features = outputs.pooler_output
 
     embedding = features.detach().numpy()[0]
 
@@ -105,10 +108,18 @@ def embed_tags(tags: dict) -> list[float]:
     model, processor = get_embedding_model()
 
     text = serialize_tags(tags)
-    inputs = processor(text=text, return_tensors="pt", padding=True)
+    inputs = processor(
+        text=text,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=77,
+    )
 
-    with model.eval():
-        features = model.get_text_features(**inputs)
+    model.eval()
+    with torch.no_grad():
+        outputs = model.get_text_features(**inputs)
+        features = outputs.pooler_output
 
     embedding = features.detach().numpy()[0]
 

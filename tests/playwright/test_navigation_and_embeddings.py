@@ -144,7 +144,7 @@ class TestEmbeddingUI:
         tagging_tab.click()
         page.wait_for_timeout(1000)
 
-        embed_button = page.get_by_role("button", name="Embed")
+        embed_button = page.get_by_role("button", name="Create Embeddings")
         embed_button.click()
         page.wait_for_timeout(500)
 

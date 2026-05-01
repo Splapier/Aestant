@@ -428,6 +428,31 @@ def _build_js_template(config: RectangleToolConfig) -> str:
 
     // Initialize
     init();
+
+    // Watch for value changes from Gradio updates (e.g., navigation)
+    let lastBg = props.value ? props.value.background_b64 : '';
+    const watchInterval = setInterval(function() {
+        const currentBg = props.value ? props.value.background_b64 : '';
+        if (currentBg !== lastBg) {
+            lastBg = currentBg;
+            currentRects = [];
+            init();
+        }
+    }, 300);
+
+    // Clean up interval if element is removed
+    const observer = new MutationObserver(function(mutations) {
+        for (const m of mutations) {
+            for (const node of m.removedNodes) {
+                if (node === element || element.contains(node)) {
+                    clearInterval(watchInterval);
+                    observer.disconnect();
+                    return;
+                }
+            }
+        }
+    });
+    observer.observe(document.body, {childList: true, subtree: true});
 })();
 """
     )

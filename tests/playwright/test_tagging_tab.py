@@ -63,16 +63,19 @@ class TestTaggingTabBasicUI:
         tag_button = page.locator("button", has_text="Send to Tag")
         expect(tag_button).to_be_visible()
 
-    def test_delete_next_button_visible(self, page, app_url):
-        """Delete & Next button should be visible."""
+    def test_prev_next_buttons_visible(self, page, app_url):
+        """Previous and Next buttons should be visible."""
         navigate(page, app_url)
 
         tagging_tab = page.get_by_role("tab", name="Tagging")
         tagging_tab.click()
         page.wait_for_timeout(1000)
 
-        delete_button = page.locator("button", has_text="Delete & Next")
-        expect(delete_button).to_be_visible()
+        prev_button = page.locator("button", has_text="Previous")
+        expect(prev_button).to_be_visible()
+
+        next_button = page.locator("button", has_text="Next")
+        expect(next_button).to_be_visible()
 
     def test_save_tags_button_visible(self, page, app_url):
         """Save Tags button should be visible."""

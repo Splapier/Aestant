@@ -474,7 +474,7 @@ def _handle_next(
     tags: dict,
     raw_responses: dict,
     prompts: dict,
-) -> tuple[int, str, gr.update, str, dict, dict, dict, int]:
+) -> tuple[int, str, gr.update, str, dict, dict, dict]:
     """Handle next button click.
 
     Args:
@@ -485,7 +485,7 @@ def _handle_next(
         prompts: Current prompts.
 
     Returns:
-        Tuple of (new_index, image_path, editor_update, status, empty_tags, empty_raw, empty_prompts, total).
+        Tuple of (new_index, image_path, editor_update, status, empty_tags, empty_raw, empty_prompts).
     """
     if current_image_path and tags:
         try:
@@ -494,7 +494,7 @@ def _handle_next(
             pass
 
     next_index = current_index + 1
-    new_image_path, new_array, editor_update, status, total = _load_current_image_all(
+    new_image_path, new_array, editor_update, status, _total = _load_current_image_all(
         next_index
     )
 
@@ -506,23 +506,36 @@ def _handle_next(
         {},
         {},
         {},
-        total,
     )
 
 
 def _handle_prev(
     current_index: int,
-) -> tuple[int, str, gr.update, str, int]:
+    current_image_path: str,
+    tags: dict,
+    raw_responses: dict,
+    prompts: dict,
+) -> tuple[int, str, gr.update, str, dict, dict, dict]:
     """Handle previous button click.
 
     Args:
         current_index: Current image index.
+        current_image_path: Current image path.
+        tags: Current tags (to save).
+        raw_responses: Current raw responses.
+        prompts: Current prompts.
 
     Returns:
-        Tuple of (new_index, image_path, editor_update, status, total).
+        Tuple of (new_index, image_path, editor_update, status, empty_tags, empty_raw, empty_prompts).
     """
+    if current_image_path and tags:
+        try:
+            save_tagged_dataset(current_image_path, tags, raw_responses, prompts)
+        except Exception:
+            pass
+
     prev_index = current_index - 1
-    new_image_path, new_array, editor_update, status, total = _load_current_image_all(
+    new_image_path, new_array, editor_update, status, _total = _load_current_image_all(
         prev_index
     )
 
@@ -531,7 +544,9 @@ def _handle_prev(
         new_image_path,
         editor_update,
         status,
-        total,
+        {},
+        {},
+        {},
     )
 
 
@@ -575,7 +590,7 @@ def _handle_create_embeddings(
     Args:
         image_path: Current image path.
         tags: Current tags.
-        embed_type: One of 'image', 'tags', 'both'.
+        embed_type: One of 'Embed Image', 'Embed Tags', 'Embed Both'.
 
     Returns:
         Status message.
@@ -583,23 +598,25 @@ def _handle_create_embeddings(
     if not image_path:
         return "No image loaded"
 
+    needs_tags = embed_type in ("Embed Tags", "Embed Both")
+    if needs_tags and not tags:
+        return "No tags to embed. Tag the image first."
+
     try:
         image_emb = None
         tag_emb = None
 
-        if embed_type in ("image", "both"):
+        if embed_type in ("Embed Image", "Embed Both"):
             image_emb = embed_image(image_path)
 
-        if embed_type in ("tags", "both"):
-            if not tags:
-                return "No tags to embed"
+        if needs_tags:
             tag_emb = embed_tags(tags)
 
         save_embeddings(image_path, image_emb, tag_emb)
 
-        if embed_type == "image":
+        if embed_type == "Embed Image":
             return "Image embedding created"
-        elif embed_type == "tags":
+        elif embed_type == "Embed Tags":
             return "Tag embedding created"
         else:
             return "Both embeddings created"
@@ -669,9 +686,11 @@ def create_tagging_tab(
         )
 
         with gr.Row():
+            prev_button = gr.Button("⬅️ Previous", variant="secondary", scale=1)
+            next_button = gr.Button("➡️ Next", variant="secondary", scale=1)
+
+        with gr.Row():
             tag_button = gr.Button("🏷️ Send to Tag", variant="primary")
-            prev_button = gr.Button("⬅️ Previous", variant="secondary")
-            next_button = gr.Button("➡️ Next", variant="secondary")
             save_button = gr.Button("💾 Save Tags", variant="secondary")
 
         with gr.Row():
@@ -729,7 +748,7 @@ def create_tagging_tab(
             img_arr = None
 
         tool = RectangleTool(label="Tagging Image", visible=img_arr is not None)
-        if img_arr:
+        if img_arr is not None:
             tool.set_background(img_arr)
 
         editor_update = gr.update(
@@ -821,17 +840,26 @@ def create_tagging_tab(
         outputs=[fields_display],
     )
 
-    def handle_prev(idx):
-        return _handle_prev(idx)
+    def handle_prev(idx, img_path, tags, raw_resp, prompts):
+        return _handle_prev(idx, img_path, tags, raw_resp, prompts)
 
     prev_button.click(
         fn=handle_prev,
-        inputs=[image_index_state],
+        inputs=[
+            image_index_state,
+            image_path_state,
+            tags_state,
+            raw_responses_state,
+            prompts_state,
+        ],
         outputs=[
             image_index_state,
             image_path_state,
             image_viewer,
             image_counter,
+            tags_state,
+            raw_responses_state,
+            prompts_state,
         ],
     ).then(
         fn=lambda: '<p class="no-tags">No tags yet. Click "Send to Tag" to analyze this image.</p>',
