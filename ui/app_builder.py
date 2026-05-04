@@ -10,6 +10,7 @@ from ui.state_setup import create_app_state
 from ui.sidebar import create_sidebar
 from ui.chat_area import create_chat_area
 from ui.event_handlers import wire_events
+from ui.preference_tab import create_preference_tab
 
 
 def create_chat_app() -> gr.Blocks:
@@ -53,6 +54,8 @@ def create_chat_app() -> gr.Blocks:
             state=state,
             chat=chat,
         )
+
+        create_preference_tab()
 
     return demo
 

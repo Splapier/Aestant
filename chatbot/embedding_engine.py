@@ -173,6 +173,64 @@ def save_embeddings(
     return str(json_path)
 
 
+def batch_embed_images(input_dir=None):
+    """Batch embed all images in input directory that don't have embeddings yet.
+
+    Only creates image embeddings (not tag embeddings). Skips images that
+    already have image_embeddings in their .embedding.json file.
+
+    Args:
+        input_dir: Directory containing images. Defaults to input/.
+
+    Returns:
+        Number of newly embedded images.
+    """
+    if input_dir is None:
+        input_dir = Path(__file__).resolve().parent.parent / "input"
+    else:
+        input_dir = Path(input_dir)
+
+    if not input_dir.exists():
+        raise FileNotFoundError(f"Input directory not found: {input_dir}")
+
+    ensure_dataset_dir()
+
+    image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
+    image_files = [
+        f
+        for f in input_dir.iterdir()
+        if f.is_file() and f.suffix.lower() in image_extensions
+    ]
+
+    embedded_count = 0
+    skipped_count = 0
+
+    for img_path in sorted(image_files):
+        emb_filename = create_embedding_filename(str(img_path))
+        emb_path = DATASET_DIR / emb_filename
+
+        # Check if already has image embedding
+        if emb_path.exists():
+            with open(emb_path, "r", encoding="utf-8") as f:
+                existing_data = json.load(f)
+            if existing_data.get("image_embedding") is not None:
+                skipped_count += 1
+                continue
+
+        # Embed and save
+        img_emb = embed_image(str(img_path))
+        save_embeddings(str(img_path), img_emb, None)
+        embedded_count += 1
+
+        if embedded_count % 10 == 0:
+            print(f"Embedded {embedded_count} images so far...")
+
+    print(
+        f"Done. Newly embedded: {embedded_count}, Skipped (already embedded): {skipped_count}"
+    )
+    return embedded_count
+
+
 __all__ = [
     "embed_image",
     "embed_tags",
@@ -180,4 +238,5 @@ __all__ = [
     "serialize_tags",
     "create_embedding_filename",
     "get_embedding_model",
+    "batch_embed_images",
 ]

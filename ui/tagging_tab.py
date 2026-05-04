@@ -38,6 +38,7 @@ from chatbot.embedding_engine import (
     embed_image,
     embed_tags,
     save_embeddings,
+    batch_embed_images,
 )
 from chatbot.config_manager import load_provider_config
 from chatbot import get_provider
@@ -700,10 +701,15 @@ def create_tagging_tab(
                 label="Embeddings",
             )
             embed_button = gr.Button("🔢 Create Embeddings", variant="secondary")
+            batch_embed_button = gr.Button(
+                "🔄 Batch Embed All Images", variant="secondary"
+            )
 
         status_display = gr.Markdown(
             value="Ready to tag" if initial_paths else "No images found",
         )
+
+        batch_embed_status = gr.Markdown(value="")
 
         fields_display = gr.HTML(
             value='<p class="no-tags">No tags yet. Click "Send to Tag" to analyze this image.</p>',
@@ -873,6 +879,20 @@ def create_tagging_tab(
         fn=handle_embed,
         inputs=[image_path_state, tags_state, embed_dropdown],
         outputs=[status_display],
+    )
+
+    def handle_batch_embed():
+        """Handle batch embedding of all images in input directory."""
+        try:
+            count = batch_embed_images()
+            return f"✅ Batch embed complete: {count} new image(s) embedded"
+        except Exception as e:
+            return f"❌ Batch embed error: {str(e)[:200]}"
+
+    batch_embed_button.click(
+        fn=handle_batch_embed,
+        inputs=[],
+        outputs=[batch_embed_status],
     )
 
     save_button.click(
