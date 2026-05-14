@@ -15,8 +15,6 @@ from chatbot.config_manager import (
     load_provider_config,
     save_provider_config,
 )
-from ui.schema_viewer import create_schema_viewer_tab
-from ui.tagging_tab import create_tagging_tab
 
 
 def _update_endpoint_state(endpoint_val: str, current_state: str) -> str:
@@ -97,7 +95,7 @@ def create_sidebar(
     Returns:
         The provider_selector Radio component for external event wiring.
     """
-    with gr.Sidebar(open=True):
+    with gr.Column():
         gr.Markdown("## Provider Selection")
 
         provider_selector = gr.Radio(
@@ -254,36 +252,5 @@ def create_sidebar(
                 inputs=[model_dropdown, model_state],
                 outputs=model_state,
             )
-
-    with gr.Tab("Schema"):
-        gr.Markdown("### Master Schema")
-        gr.Markdown(
-            "View and edit schema keys with their parent hierarchy. "
-            "Users can add keys under level 1+ parents and delete their own additions."
-        )
-        result = create_schema_viewer_tab()
-        (
-            schema_viewer,
-            schema_refresh,
-            add_parent,
-            add_key,
-            add_type,
-            add_desc,
-            add_button,
-            delete_path,
-            delete_button,
-        ) = result
-
-    with gr.Tab("Tagging"):
-        gr.Markdown("### Image Tagging")
-        gr.Markdown(
-            "Tag images for dataset creation. Tagging sends images to VLM for automatic "
-            "annotation. Tagged images are saved as YAML files in the dataset/ directory."
-        )
-        tagging = create_tagging_tab(
-            provider_selector=provider_selector,
-            endpoint_state=endpoint_state,
-            model_state=model_state,
-        )
 
     return provider_selector
