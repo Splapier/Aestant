@@ -3,11 +3,13 @@
 This module provides functions for:
 - Scanning and loading images from a designated input directory
 - Converting image files to numpy arrays
+- Loading images with optional rectangle-based cropping for attention masking
 
 Usage Example:
-    >>> from chatbot.image_modules.image_loading import scan_input_directory, load_image_as_numpy
+    >>> from chatbot.image_modules.image_loading import scan_input_directory, load_image_as_numpy, load_image_cropped
     >>> image_paths = scan_input_directory("./input", max_count=2)
     >>> img_array = load_image_as_numpy(image_paths[0])
+    >>> cropped = load_image_cropped(image_paths[0], [{"x1": 10, "y1": 10, "x2": 50, "y2": 50}])
 """
 
 import os
@@ -119,10 +121,65 @@ def load_images_from_directory(
     return loaded_images
 
 
+def load_image_cropped(
+    image_path: str | Path,
+    rectangles: list[dict] | None,
+) -> np.ndarray | None:
+    """Load an image and optionally crop to a bounding box region.
+
+    This function loads an image from disk and, if rectangles are provided
+    and valid, crops the image to the first rectangle's bounding box.
+    This is used for attention-based comparison where only a specific
+    region of the image should be considered.
+
+    Args:
+        image_path: Path to the image file.
+        rectangles: Optional list of rectangle dicts with x1, y1, x2, y2 keys.
+                   If provided and contains exactly one rectangle, the image
+                   is cropped to that region. Otherwise, returns full image.
+
+    Returns:
+        Numpy array (RGB format), either full image or cropped region.
+        Returns None if loading or cropping fails.
+
+    Example:
+        >>> rects = [{"x1": 10, "y1": 10, "x2": 50, "y2": 50}]
+        >>> cropped = load_image_cropped("./image.png", rects)
+        >>> print(cropped.shape)  # (40, 40, 3)
+    """
+    img = load_image_as_numpy(image_path)
+    if img is None:
+        return None
+
+    if not rectangles:
+        return img
+
+    if len(rectangles) != 1:
+        return img
+
+    rect = rectangles[0]
+    x1 = min(rect.get("x1", 0), rect.get("x2", 0))
+    y1 = min(rect.get("y1", 0), rect.get("y2", 0))
+    x2 = max(rect.get("x1", 0), rect.get("x2", 0))
+    y2 = max(rect.get("y1", 0), rect.get("y2", 0))
+
+    h, w = img.shape[:2]
+    x1 = max(0, min(x1, w - 1))
+    y1 = max(0, min(y1, h - 1))
+    x2 = max(0, min(x2, w))
+    y2 = max(0, min(y2, h))
+
+    if x2 <= x1 or y2 <= y1:
+        return img
+
+    return img[y1:y2, x1:x2]
+
+
 __all__ = [
     "scan_input_directory",
     "load_image_as_numpy",
     "load_images_from_directory",
+    "load_image_cropped",
     "SUPPORTED_EXTENSIONS",
     "DEFAULT_INPUT_DIR",
     "MAX_IMAGES_DEFAULT",

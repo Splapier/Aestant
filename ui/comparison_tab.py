@@ -2,7 +2,8 @@
 
 This module provides a UI for:
 - Selecting two images and choosing a winner/loser
-- Building winners and losers embedding pools
+- Drawing rectangles to highlight regions of attention
+- Building winners and losers embedding pools with rectangle metadata
 - Auto-advancing to next pair after comparison
 - Running inference to find best candidate based on pools
 """
@@ -11,10 +12,24 @@ import json
 from pathlib import Path
 
 import gradio as gr
+import numpy as np
 
 from chatbot.average_embeddings import load_state, add_winner, add_loser
 from chatbot.similarity_search import find_winner
 from chatbot.tagging_engine import DATASET_DIR
+from chatbot.image_modules.rectangle_tool import RectangleTool
+from chatbot.image_modules.image_loading import load_image_as_numpy
+
+
+_HTML_TEMPLATE = None
+_CSS_TEMPLATE = None
+_JS_TEMPLATE = None
+
+_tool_config = RectangleTool()
+_update_template = _tool_config.get_html_update()
+_HTML_TEMPLATE = _update_template["html_template"]
+_CSS_TEMPLATE = _update_template["css_template"]
+_JS_TEMPLATE = _update_template["js_on_load"]
 
 
 def scan_dataset_images():
@@ -60,6 +75,15 @@ def get_pool_status():
     winners = state.get("winners", {})
     losers = state.get("losers", {})
 
+    win_rects = winners.get("last_rectangles")
+    lose_rects = losers.get("last_rectangles")
+
+    rect_info = ""
+    if win_rects:
+        rect_info += f"\n- Win region: {len(win_rects)} rect(s)"
+    if lose_rects:
+        rect_info += f"\n- Lose region: {len(lose_rects)} rect(s)"
+
     return f"""
 ### Pool Status
 **Winners:**
@@ -97,7 +121,48 @@ def _get_next_pair(current_images, exclude=None):
     return available[0], available[1]
 
 
-def handle_a_wins(name_a: str, name_b: str):
+def _create_rectangle_tool_html(image_name: str | None, label: str) -> dict:
+    """Create rectangle tool HTML component value for an image.
+
+    Args:
+        image_name: Name of the image (without extension).
+        label: Label for the rectangle tool.
+
+    Returns:
+        Gradio update dict with HTML component value.
+    """
+    image_path = load_image_for_display(image_name) if image_name else None
+
+    tool = RectangleTool(label=label, visible=image_path is not None)
+    if image_path:
+        img_array = load_image_as_numpy(image_path)
+        if img_array is not None:
+            tool.set_background(img_array)
+
+    return gr.update(
+        value=tool._get_value(),
+        html_template=_HTML_TEMPLATE,
+        css_template=_CSS_TEMPLATE,
+        js_on_load=_JS_TEMPLATE,
+        visible=image_path is not None,
+    )
+
+
+def _extract_rectangles(editor_value) -> list[dict]:
+    """Extract rectangles from rectangle tool editor value.
+
+    Args:
+        editor_value: The value from gr.HTML rectangle tool component.
+
+    Returns:
+        List of rectangle dicts with x1, y1, x2, y2, color keys.
+    """
+    if not editor_value or not isinstance(editor_value, dict):
+        return []
+    return editor_value.get("rects", [])
+
+
+def handle_a_wins(name_a: str, name_b: str, editor_value_a, editor_value_b):
     """Mark A as winner, B as loser. Auto-advance to next pair."""
     global _last_comparison, _compared_images
 
@@ -112,6 +177,9 @@ def handle_a_wins(name_a: str, name_b: str):
             None,
         )
 
+    rects_a = _extract_rectangles(editor_value_a)
+    rects_b = _extract_rectangles(editor_value_b)
+
     emb_file_a = DATASET_DIR / f"{name_a}.embedding.json"
     emb_file_b = DATASET_DIR / f"{name_b}.embedding.json"
 
@@ -137,18 +205,17 @@ def handle_a_wins(name_a: str, name_b: str):
             None,
         )
 
-    add_winner(img_emb_a, data_a.get("tag_embedding"))
-    add_loser(img_emb_b, data_b.get("tag_embedding"))
+    add_winner(img_emb_a, data_a.get("tag_embedding"), rectangles=rects_a)
+    add_loser(img_emb_b, data_b.get("tag_embedding"), rectangles=rects_b)
 
     _last_comparison = {"winner": name_a, "loser": name_b}
     _compared_images.add(name_a)
     _compared_images.add(name_b)
 
-    # Auto-advance to next pair
     all_images = scan_dataset_images()
     next_a, next_b = _get_next_pair(all_images)
-    next_img_a = load_image_for_display(next_a) if next_a else None
-    next_img_b = load_image_for_display(next_b) if next_b else None
+    next_img_a = _create_rectangle_tool_html(next_a, "Image A")
+    next_img_b = _create_rectangle_tool_html(next_b, "Image B")
 
     return (
         f"✅ {name_a} → winners, {name_b} → losers. Auto-advancing...",
@@ -159,7 +226,7 @@ def handle_a_wins(name_a: str, name_b: str):
     )
 
 
-def handle_b_wins(name_a: str, name_b: str):
+def handle_b_wins(name_a: str, name_b: str, editor_value_a, editor_value_b):
     """Mark B as winner, A as loser. Auto-advance to next pair."""
     global _last_comparison, _compared_images
 
@@ -174,6 +241,9 @@ def handle_b_wins(name_a: str, name_b: str):
             None,
         )
 
+    rects_a = _extract_rectangles(editor_value_a)
+    rects_b = _extract_rectangles(editor_value_b)
+
     emb_file_a = DATASET_DIR / f"{name_a}.embedding.json"
     emb_file_b = DATASET_DIR / f"{name_b}.embedding.json"
 
@@ -199,18 +269,17 @@ def handle_b_wins(name_a: str, name_b: str):
             None,
         )
 
-    add_winner(img_emb_b, data_b.get("tag_embedding"))
-    add_loser(img_emb_a, data_a.get("tag_embedding"))
+    add_winner(img_emb_b, data_b.get("tag_embedding"), rectangles=rects_b)
+    add_loser(img_emb_a, data_a.get("tag_embedding"), rectangles=rects_a)
 
     _last_comparison = {"winner": name_b, "loser": name_a}
     _compared_images.add(name_a)
     _compared_images.add(name_b)
 
-    # Auto-advance to next pair
     all_images = scan_dataset_images()
     next_a, next_b = _get_next_pair(all_images)
-    next_img_a = load_image_for_display(next_a) if next_a else None
-    next_img_b = load_image_for_display(next_b) if next_b else None
+    next_img_a = _create_rectangle_tool_html(next_a, "Image A")
+    next_img_b = _create_rectangle_tool_html(next_b, "Image B")
 
     return (
         f"✅ {name_b} → winners, {name_a} → losers. Auto-advancing...",
@@ -221,7 +290,7 @@ def handle_b_wins(name_a: str, name_b: str):
     )
 
 
-def handle_swap(name_a: str, name_b: str):
+def handle_swap(name_a: str, name_b: str, editor_value_a, editor_value_b):
     """Swap the last comparison result (winner becomes loser and vice versa)."""
     global _last_comparison
 
@@ -253,8 +322,8 @@ def handle_swap(name_a: str, name_b: str):
 
     _last_comparison = {"winner": old_loser, "loser": old_winner}
 
-    img_a = load_image_for_display(name_a)
-    img_b = load_image_for_display(name_b)
+    img_a = _create_rectangle_tool_html(name_a, "Image A")
+    img_b = _create_rectangle_tool_html(name_b, "Image B")
 
     return (
         f"🔄 Swapped: {old_loser} → winners, {old_winner} → losers",
@@ -288,6 +357,16 @@ def handle_run_inference():
     )
 
 
+def update_image_a(name_a: str):
+    """Update rectangle tool A when dropdown changes."""
+    return _create_rectangle_tool_html(name_a, "Image A")
+
+
+def update_image_b(name_b: str):
+    """Update rectangle tool B when dropdown changes."""
+    return _create_rectangle_tool_html(name_b, "Image B")
+
+
 def create_comparison_tab():
     """Create the preference comparison tab UI."""
 
@@ -295,23 +374,29 @@ def create_comparison_tab():
         gr.Markdown("## Preference Comparison & Inference")
         gr.Markdown(
             "Select two images, choose a winner, and build pools for inference. "
+            "Draw rectangles on images to focus attention on specific regions. "
             "After each comparison, the next pair is loaded automatically."
         )
 
         all_images = scan_dataset_images()
         default_a = all_images[0] if len(all_images) > 0 else None
         default_b = all_images[1] if len(all_images) > 1 else None
-        init_img_a = load_image_for_display(default_a) if default_a else None
-        init_img_b = load_image_for_display(default_b) if default_b else None
 
-        # Pool status
+        init_tool_a = _create_rectangle_tool_html(default_a, "Image A")
+        init_tool_b = _create_rectangle_tool_html(default_b, "Image B")
+
         pool_status = gr.Markdown(value=get_pool_status())
 
         with gr.Row():
             with gr.Column(scale=1):
                 gr.Markdown("### Image A")
-                image_a = gr.Image(
-                    value=init_img_a, type="filepath", label="Image A", height=300
+                image_viewer_a = gr.HTML(
+                    value=init_tool_a["value"],
+                    html_template=_HTML_TEMPLATE,
+                    css_template=_CSS_TEMPLATE,
+                    js_on_load=_JS_TEMPLATE,
+                    label="Image A Viewer",
+                    visible=init_tool_a["visible"],
                 )
                 choices_a = gr.Dropdown(
                     choices=all_images,
@@ -322,8 +407,13 @@ def create_comparison_tab():
 
             with gr.Column(scale=1):
                 gr.Markdown("### Image B")
-                image_b = gr.Image(
-                    value=init_img_b, type="filepath", label="Image B", height=300
+                image_viewer_b = gr.HTML(
+                    value=init_tool_b["value"],
+                    html_template=_HTML_TEMPLATE,
+                    css_template=_CSS_TEMPLATE,
+                    js_on_load=_JS_TEMPLATE,
+                    label="Image B Viewer",
+                    visible=init_tool_b["visible"],
                 )
                 choices_b = gr.Dropdown(
                     choices=all_images,
@@ -332,7 +422,6 @@ def create_comparison_tab():
                     allow_custom_value=True,
                 )
 
-        # Action buttons
         with gr.Row():
             a_wins_btn = gr.Button("👑 A Wins", variant="primary", scale=1)
             b_wins_btn = gr.Button("👑 B Wins", variant="primary", scale=1)
@@ -340,7 +429,6 @@ def create_comparison_tab():
 
         action_status = gr.Markdown(value="")
 
-        # Inference section
         gr.Markdown("---")
         gr.Markdown("### Run Inference")
         with gr.Row():
@@ -352,32 +440,52 @@ def create_comparison_tab():
             type="filepath", label="Inference Winner", height=400
         )
 
-        # Event handlers
-        def update_image_a(name):
-            return load_image_for_display(name)
+        choices_a.change(
+            fn=update_image_a,
+            inputs=[choices_a],
+            outputs=[image_viewer_a],
+        )
 
-        def update_image_b(name):
-            return load_image_for_display(name)
-
-        choices_a.change(fn=update_image_a, inputs=[choices_a], outputs=[image_a])
-        choices_b.change(fn=update_image_b, inputs=[choices_b], outputs=[image_b])
+        choices_b.change(
+            fn=update_image_b,
+            inputs=[choices_b],
+            outputs=[image_viewer_b],
+        )
 
         a_wins_btn.click(
             fn=handle_a_wins,
-            inputs=[choices_a, choices_b],
-            outputs=[action_status, choices_a, choices_b, image_a, image_b],
+            inputs=[choices_a, choices_b, image_viewer_a, image_viewer_b],
+            outputs=[
+                action_status,
+                choices_a,
+                choices_b,
+                image_viewer_a,
+                image_viewer_b,
+            ],
         ).then(fn=get_pool_status, outputs=[pool_status])
 
         b_wins_btn.click(
             fn=handle_b_wins,
-            inputs=[choices_a, choices_b],
-            outputs=[action_status, choices_a, choices_b, image_a, image_b],
+            inputs=[choices_a, choices_b, image_viewer_a, image_viewer_b],
+            outputs=[
+                action_status,
+                choices_a,
+                choices_b,
+                image_viewer_a,
+                image_viewer_b,
+            ],
         ).then(fn=get_pool_status, outputs=[pool_status])
 
         swap_btn.click(
             fn=handle_swap,
-            inputs=[choices_a, choices_b],
-            outputs=[action_status, choices_a, choices_b, image_a, image_b],
+            inputs=[choices_a, choices_b, image_viewer_a, image_viewer_b],
+            outputs=[
+                action_status,
+                choices_a,
+                choices_b,
+                image_viewer_a,
+                image_viewer_b,
+            ],
         ).then(fn=get_pool_status, outputs=[pool_status])
 
         refresh_pools_btn.click(fn=get_pool_status, outputs=[pool_status])
@@ -392,6 +500,8 @@ def create_comparison_tab():
         "pool_status": pool_status,
         "choices_a": choices_a,
         "choices_b": choices_b,
+        "image_viewer_a": image_viewer_a,
+        "image_viewer_b": image_viewer_b,
     }
 
 

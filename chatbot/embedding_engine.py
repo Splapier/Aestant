@@ -40,11 +40,17 @@ def get_embedding_model():
     return model, processor
 
 
-def embed_image(image_path: str) -> list[float]:
-    """Create embedding for an image file.
+def embed_image(
+    image_path: str | Path,
+    rectangles: list[dict] | None = None,
+) -> list[float]:
+    """Create embedding for an image file, optionally from a cropped region.
 
     Args:
         image_path: Path to the image file.
+        rectangles: Optional list of rectangle dicts for cropping to specific region.
+                   If provided and contains exactly one rectangle, the image is
+                   cropped to that bounding box before embedding.
 
     Returns:
         Embedding as list of floats.
@@ -57,8 +63,45 @@ def embed_image(image_path: str) -> list[float]:
 
     model, processor = get_embedding_model()
 
-    image = Image.open(image_path).convert("RGB")
-    inputs = processor(images=image, return_tensors="pt")
+    from chatbot.image_modules.image_loading import load_image_cropped
+
+    image_array = load_image_cropped(image_path, rectangles)
+
+    pil_img = Image.fromarray(image_array)
+    inputs = processor(images=pil_img, return_tensors="pt")
+
+    model.eval()
+    with torch.no_grad():
+        outputs = model.get_image_features(**inputs)
+        features = outputs.pooler_output
+
+    embedding = features.detach().numpy()[0]
+
+    return embedding.tolist()
+
+
+def embed_from_array(
+    image_array: np.ndarray,
+    rectangles: list[dict] | None = None,
+) -> list[float]:
+    """Create embedding from a numpy image array, optionally cropped.
+
+    Args:
+        image_array: RGB numpy array (H x W x 3).
+        rectangles: Optional list of rectangle dicts for cropping.
+
+    Returns:
+        Embedding as list of floats.
+    """
+    from chatbot.tagging_engine import crop_to_bounding_box
+
+    if rectangles and len(rectangles) == 1:
+        image_array = crop_to_bounding_box(image_array, rectangles)
+
+    model, processor = get_embedding_model()
+
+    pil_img = Image.fromarray(image_array)
+    inputs = processor(images=pil_img, return_tensors="pt")
 
     model.eval()
     with torch.no_grad():
@@ -143,6 +186,7 @@ def save_embeddings(
     image_path: str,
     image_embedding: list[float] | None,
     tag_embedding: list[float] | None,
+    rectangles: list[dict] | None = None,
 ) -> str:
     """Save embeddings to JSON file in dataset directory.
 
@@ -150,6 +194,8 @@ def save_embeddings(
         image_path: Path to the original image.
         image_embedding: Image embedding as list of floats, or None.
         tag_embedding: Tag embedding as list of floats, or None.
+        rectangles: Optional list of rectangle dicts that were used for cropping.
+                   Stored with the embedding to enable attention-based comparison.
 
     Returns:
         Path to the saved JSON file.
@@ -163,6 +209,7 @@ def save_embeddings(
         "image_path": image_path,
         "image_embedding": image_embedding,
         "tag_embedding": tag_embedding,
+        "region_rects": rectangles,
         "created_at": datetime.now().isoformat(),
         "model": EMBEDDING_MODEL_NAME,
     }
@@ -233,6 +280,7 @@ def batch_embed_images(input_dir=None):
 
 __all__ = [
     "embed_image",
+    "embed_from_array",
     "embed_tags",
     "save_embeddings",
     "serialize_tags",

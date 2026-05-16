@@ -2,14 +2,14 @@
 
 This module handles:
 - Maintaining separate running averages for winners and losers
-- Adding embeddings to winners or losers pools
+- Adding embeddings to winners or losers pools with rectangle metadata
 - Persisting state to disk for incremental updates
 
 Usage:
     >>> from chatbot.average_embeddings import add_winner, add_loser, load_state
-    >>> add_winner(image_emb, tag_emb)
+    >>> add_winner(image_emb, tag_emb, rectangles=[{"x1": 10, "y1": 20, "x2": 100, "y2": 200}])
     >>> state = load_state()
-    >>> print(state["winners"]["image_embedding_avg"])
+    >>> print(state["winners"]["last_rectangles"])
 """
 
 import json
@@ -29,6 +29,7 @@ def _empty_pool():
         "tag_embedding_avg": None,
         "image_count": 0,
         "tag_count": 0,
+        "last_rectangles": None,
     }
 
 
@@ -83,12 +84,14 @@ def update_running_average(current_avg, count, new_vector):
     return updated.tolist()
 
 
-def add_winner(image_emb, tag_emb=None):
+def add_winner(image_emb, tag_emb=None, rectangles=None):
     """Add a winner's embeddings to the winners pool.
 
     Args:
         image_emb: Image embedding as list of floats.
         tag_emb: Tag embedding as list of floats, or None.
+        rectangles: Optional list of rectangle dicts used for cropping the image.
+                   Stored with the pool for attention-based comparison.
     """
     state = load_state()
 
@@ -108,15 +111,19 @@ def add_winner(image_emb, tag_emb=None):
         )
         state["winners"]["tag_count"] += 1
 
+    state["winners"]["last_rectangles"] = rectangles
+
     save_state(state)
 
 
-def add_loser(image_emb, tag_emb=None):
+def add_loser(image_emb, tag_emb=None, rectangles=None):
     """Add a loser's embeddings to the losers pool.
 
     Args:
         image_emb: Image embedding as list of floats.
         tag_emb: Tag embedding as list of floats, or None.
+        rectangles: Optional list of rectangle dicts used for cropping the image.
+                   Stored with the pool for attention-based comparison.
     """
     state = load_state()
 
@@ -135,5 +142,7 @@ def add_loser(image_emb, tag_emb=None):
             tag_emb,
         )
         state["losers"]["tag_count"] += 1
+
+    state["losers"]["last_rectangles"] = rectangles
 
     save_state(state)
