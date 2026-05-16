@@ -2,13 +2,14 @@
 
 This module handles:
 - Cosine similarity calculations
-- Finding the best candidate based on winners/losers pools with attention masking
-- Scoring: higher similarity to winners, lower to losers
-- Rectangle-based attention for focusing comparison on specific regions
+- Finding the best candidate based on winners/losers pools
+- Primary scoring: cosine similarity to average embeddings
+- Secondary scoring (optional): sum of similarities to individual entries
 
 Usage:
     >>> from chatbot.similarity_search import find_winner
-    >>> winner = find_winner(dataset_dir, winners_state, losers_state)
+    >>> winner = find_winner(dataset_dir, winners_pool, losers_pool)
+    >>> winner = find_winner(dataset_dir, winners_pool, losers_pool, use_entry_scoring=True)
 """
 
 import json
@@ -41,148 +42,150 @@ def load_embedding_file(filepath):
         filepath: Path to .embedding.json file.
 
     Returns:
-        Dictionary with image_embedding, tag_embedding, region_rects, etc.
+        Dictionary with image_embedding, tag_embedding, entries, etc.
     """
     with open(filepath, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def _get_attention_rectangles(winners_state, losers_state):
-    """Determine the attention rectangles to use for comparison.
-
-    Uses the winner pool's rectangles as the primary attention mask.
-    If winners have no rectangles, falls back to loser pool's rectangles.
-    If neither has rectangles, returns None (use full image comparison).
+def _get_entry_embedding(image_name: str, entry_id: str | None) -> list[float] | None:
+    """Get embedding for a specific image entry.
 
     Args:
-        winners_state: Dict with "image_embedding_avg" and "last_rectangles".
-        losers_state: Dict with "image_embedding_avg" and "last_rectangles".
+        image_name: Name of image (without extension).
+        entry_id: Entry ID (e.g., "rect_0"), or None for full image.
 
     Returns:
-        Rectangle dict list or None.
+        Embedding list, or None if not found.
     """
-    win_rects = winners_state.get("last_rectangles")
-    if win_rects and len(win_rects) > 0:
-        return win_rects
+    from chatbot.embedding_engine import (
+        get_entry_embedding,
+        load_embedding_file as load_emb,
+    )
 
-    lose_rects = losers_state.get("last_rectangles")
-    if lose_rects and len(lose_rects) > 0:
-        return lose_rects
+    if entry_id is None:
+        data = load_emb(image_name)
+        return data.get("image_embedding")
 
-    return None
+    return get_entry_embedding(image_name, entry_id)
 
 
-def _compute_scoring_embedding(
-    img_emb: list | None,
-    tag_emb: list | None,
-    image_path: str,
-    region_rects: list[dict] | None,
-    attention_rects: list[dict] | None,
-) -> list[float] | None:
-    """Compute embedding for scoring, optionally using cropped region.
-
-    If attention_rects are provided and the image has region_rects stored,
-    crops the image to that region and re-embeds it for comparison.
+def _compute_primary_score(
+    img_emb, tag_emb, win_img_avg, win_tag_avg, lose_img_avg, lose_tag_avg
+):
+    """Compute primary score based on cosine similarity to average embeddings.
 
     Args:
-        img_emb: Original image embedding from the embedding file.
-        tag_emb: Tag embedding from the embedding file.
-        image_path: Path to the original image file.
-        region_rects: Rectangles stored with this embedding file.
-        attention_rects: Rectangles to use as attention mask.
+        img_emb: Candidate image embedding.
+        tag_emb: Candidate tag embedding.
+        win_img_avg: Winners average image embedding.
+        win_tag_avg: Winners average tag embedding.
+        lose_img_avg: Losers average image embedding.
+        lose_tag_avg: Losers average tag embedding.
 
     Returns:
-        Embedding to use for scoring, or None if not computable.
+        Primary score as float.
     """
-    if img_emb is None:
-        return None
+    score = 0.0
 
-    if attention_rects is None or region_rects is None:
-        return img_emb
+    if img_emb is not None and win_img_avg is not None:
+        score += cosine_similarity(win_img_avg, img_emb)
+    if img_emb is not None and lose_img_avg is not None:
+        score -= cosine_similarity(lose_img_avg, img_emb)
+    if tag_emb is not None and win_tag_avg is not None:
+        score += cosine_similarity(win_tag_avg, tag_emb)
+    if tag_emb is not None and lose_tag_avg is not None:
+        score -= cosine_similarity(lose_tag_avg, tag_emb)
 
-    if not attention_rects or not region_rects:
-        return img_emb
-
-    try:
-        from chatbot.image_modules.image_loading import load_image_cropped
-        from chatbot.embedding_engine import embed_from_array
-
-        img_array = load_image_cropped(image_path, region_rects)
-        if img_array is not None:
-            return embed_from_array(img_array, attention_rects)
-    except Exception:
-        pass
-
-    return img_emb
+    return score
 
 
-def find_winner(dataset_dir, winners_state, losers_state):
+def _compute_secondary_score(img_emb, tag_emb, winners_entries, losers_entries):
+    """Compute secondary score based on sum of similarities to individual entries.
+
+    Each entry contributes its own similarity to the candidate, summed separately
+    for winners and losers.
+
+    Args:
+        img_emb: Candidate image embedding.
+        tag_emb: Candidate tag embedding.
+        winners_entries: List of winner entry dicts.
+        losers_entries: List of loser entry dicts.
+
+    Returns:
+        Secondary score as float (winner_sum - loser_sum).
+    """
+    win_sum = 0.0
+    lose_sum = 0.0
+
+    for entry in winners_entries:
+        entry_emb = _get_entry_embedding(entry["image_name"], entry["entry_id"])
+        if entry_emb is not None and img_emb is not None:
+            win_sum += cosine_similarity(img_emb, entry_emb)
+
+    for entry in losers_entries:
+        entry_emb = _get_entry_embedding(entry["image_name"], entry["entry_id"])
+        if entry_emb is not None and img_emb is not None:
+            lose_sum += cosine_similarity(img_emb, entry_emb)
+
+    return win_sum - lose_sum
+
+
+def find_winner(
+    dataset_dir,
+    winners_pool,
+    losers_pool,
+    use_entry_scoring: bool = False,
+):
     """Find the winner image based on similarity to winners/losers pools.
 
-    Score = sim_to_winners - sim_to_losers for both image and tag embeddings.
-    Uses rectangle-based attention when available in the pool state.
-    Highest scoring candidate wins.
+    Primary scoring: Score = sim_to_winners_avg - sim_to_losers_avg
+    Secondary scoring (optional): Adds sum of similarities to individual entries.
 
     Args:
         dataset_dir: Directory containing .embedding.json files.
-        winners_state: Dict with "image_embedding_avg", "tag_embedding_avg", and
-                      optionally "last_rectangles" for attention masking.
-        losers_state: Dict with "image_embedding_avg", "tag_embedding_avg", and
-                      optionally "last_rectangles" for attention masking.
+        winners_pool: Dict with entries list and image_embedding_avg.
+        losers_pool: Dict with entries list and image_embedding_avg.
+        use_entry_scoring: If True, adds secondary entry-by-entry scoring.
 
     Returns:
         Dictionary with winner info: filename, scores.
     """
     dataset_dir = Path(dataset_dir)
 
-    win_img_avg = winners_state.get("image_embedding_avg")
-    win_tag_avg = winners_state.get("tag_embedding_avg")
-    lose_img_avg = losers_state.get("image_embedding_avg")
-    lose_tag_avg = losers_state.get("tag_embedding_avg")
+    win_img_avg = winners_pool.get("image_embedding_avg")
+    win_tag_avg = winners_pool.get("tag_embedding_avg")
+    lose_img_avg = losers_pool.get("image_embedding_avg")
+    lose_tag_avg = losers_pool.get("tag_embedding_avg")
 
-    attention_rects = _get_attention_rectangles(winners_state, losers_state)
+    winners_entries = winners_pool.get("entries", [])
+    losers_entries = losers_pool.get("entries", [])
 
     best_file = None
     best_score = -float("inf")
 
     for emb_file in sorted(dataset_dir.glob("*.embedding.json")):
         data = load_embedding_file(emb_file)
-        score = 0.0
-        has_any = False
 
         img_emb = data.get("image_embedding")
         tag_emb = data.get("tag_embedding")
-        region_rects = data.get("region_rects")
 
-        if img_emb is not None and win_img_avg is not None:
-            scoring_emb = _compute_scoring_embedding(
-                img_emb,
-                tag_emb,
-                data.get("image_path", ""),
-                region_rects,
-                attention_rects,
+        if img_emb is None:
+            continue
+
+        primary = _compute_primary_score(
+            img_emb, tag_emb, win_img_avg, win_tag_avg, lose_img_avg, lose_tag_avg
+        )
+
+        if use_entry_scoring and (winners_entries or losers_entries):
+            secondary = _compute_secondary_score(
+                img_emb, tag_emb, winners_entries, losers_entries
             )
-            if scoring_emb is not None:
-                score += cosine_similarity(win_img_avg, scoring_emb)
-                has_any = True
+            score = primary + secondary
+        else:
+            score = primary
 
-        if img_emb is not None and lose_img_avg is not None:
-            scoring_emb = _compute_scoring_embedding(
-                img_emb,
-                tag_emb,
-                data.get("image_path", ""),
-                region_rects,
-                attention_rects,
-            )
-            if scoring_emb is not None:
-                score -= cosine_similarity(lose_img_avg, scoring_emb)
-
-        if tag_emb is not None and win_tag_avg is not None:
-            score += cosine_similarity(win_tag_avg, tag_emb)
-        if tag_emb is not None and lose_tag_avg is not None:
-            score -= cosine_similarity(lose_tag_avg, tag_emb)
-
-        if has_any and score > best_score:
+        if score > best_score:
             best_score = score
             best_file = emb_file.name
 
@@ -190,3 +193,50 @@ def find_winner(dataset_dir, winners_state, losers_state):
         "winner": best_file,
         "score": best_score,
     }
+
+
+def find_winner_with_entries(
+    dataset_dir,
+    winners_entries: list[dict],
+    losers_entries: list[dict],
+    use_entry_scoring: bool = False,
+):
+    """Find winner using explicit entries instead of pools.
+
+    Args:
+        dataset_dir: Directory containing .embedding.json files.
+        winners_entries: List of winner entry dicts with image_name and entry_id.
+        losers_entries: List of loser entry dicts with image_name and entry_id.
+        use_entry_scoring: If True, use entry-by-entry scoring.
+
+    Returns:
+        Dictionary with winner info: filename, score.
+    """
+    from chatbot.average_embeddings import compute_image_embedding_avg
+
+    dataset_dir = Path(dataset_dir)
+
+    winners_pool = {
+        "image_embedding_avg": compute_image_embedding_avg(
+            "winners", use_rectangles=True
+        ),
+        "tag_embedding_avg": None,
+        "entries": winners_entries,
+    }
+    losers_pool = {
+        "image_embedding_avg": compute_image_embedding_avg(
+            "losers", use_rectangles=True
+        ),
+        "tag_embedding_avg": None,
+        "entries": losers_entries,
+    }
+
+    return find_winner(dataset_dir, winners_pool, losers_pool, use_entry_scoring)
+
+
+__all__ = [
+    "cosine_similarity",
+    "find_winner",
+    "find_winner_with_entries",
+    "load_embedding_file",
+]
