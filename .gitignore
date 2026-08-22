@@ -211,3 +211,4 @@ __marimo__/
 input/*
 !input/.gitkeep
 config
+data/

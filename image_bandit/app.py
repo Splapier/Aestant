@@ -19,7 +19,9 @@ DEFAULT_IMAGES_DIR = "images"
 DEFAULT_DATA_DIR = "data/bandit"
 DEFAULT_BATCH_SIZE = 8
 
-_HIDDEN = (gr.update(visible=False), gr.update(visible=False))
+_ROW_HIDDEN = gr.update(visible=False)
+_ROW_SHOWN = gr.update(visible=True)
+_CLEAR_IMAGES = (gr.update(value=None), gr.update(value=None))
 _INACTIVE = (gr.update(interactive=False), gr.update(interactive=False))
 _ACTIVE = (gr.update(interactive=True), gr.update(interactive=True))
 
@@ -60,18 +62,20 @@ def create_bandit_app(
 
     def pair_outputs(pair) -> tuple:
         return (
-            str(recommender.path_for(pair.left_key)),
-            str(recommender.path_for(pair.right_key)),
+            _ROW_SHOWN,
+            gr.update(value=str(recommender.path_for(pair.left_key))),
+            gr.update(value=str(recommender.path_for(pair.right_key))),
             *_ACTIVE,
         )
 
     def no_pair_message(reason: str) -> tuple:
-        return (reason, *_HIDDEN, *_INACTIVE)
+        return (reason, _ROW_HIDDEN, *_CLEAR_IMAGES, *_INACTIVE)
 
     def setup():
         yield (
             "⏳ Scanning images and computing dense features…",
-            *_HIDDEN,
+            _ROW_HIDDEN,
+            *_CLEAR_IMAGES,
             *_INACTIVE,
         )
         stats = store.ensure_features(images_dir)
@@ -131,14 +135,15 @@ def create_bandit_app(
         )
         status_md = gr.Markdown("Starting…")
 
-        with gr.Row():
+        pair_row = gr.Row(visible=False)
+        with pair_row:
             with gr.Column():
-                img_left = gr.Image(label="Candidate A", value=None, visible=False)
+                img_left = gr.Image(label="Candidate A", value=None, visible=True)
                 btn_left = gr.Button(
                     "👈 I prefer this image", variant="primary", interactive=False
                 )
             with gr.Column():
-                img_right = gr.Image(label="Candidate B", value=None, visible=False)
+                img_right = gr.Image(label="Candidate B", value=None, visible=True)
                 btn_right = gr.Button(
                     "I prefer this image 👉", variant="primary", interactive=False
                 )
@@ -150,7 +155,7 @@ def create_bandit_app(
             f"Batch size: {batch_size}"
         )
 
-        outputs = [status_md, img_left, img_right, btn_left, btn_right]
+        outputs = [status_md, pair_row, img_left, img_right, btn_left, btn_right]
         demo.load(setup, outputs=outputs)
         btn_left.click(lambda: on_choice("left"), outputs=outputs)
         btn_right.click(lambda: on_choice("right"), outputs=outputs)
