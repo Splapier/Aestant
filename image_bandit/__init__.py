@@ -17,6 +17,13 @@ from image_bandit.feature_store import (
     scan_image_directory,
 )
 from image_bandit.linucb import LinUCBUser
+from image_bandit.manual_inference import (
+    ContentFeatureStore,
+    InferenceResult,
+    ScanResult,
+    get_profile,
+    run_manual_inference,
+)
 from image_bandit.preference_profile import (
     load_preference_profile,
     save_preference_profile,
@@ -38,8 +45,13 @@ __all__ = [
     "Pair",
     "WINNER_REWARD",
     "LOSER_REWARD",
+    "ContentFeatureStore",
+    "InferenceResult",
+    "ScanResult",
     "extract_dense_features",
+    "get_profile",
     "load_preference_profile",
+    "run_manual_inference",
     "save_preference_profile",
     "scan_image_directory",
 ]

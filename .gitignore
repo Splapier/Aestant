@@ -212,3 +212,6 @@ input/*
 !input/.gitkeep
 config
 data/
+images/
+.worktreeinclude
+AGENTS.md

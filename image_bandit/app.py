@@ -12,12 +12,18 @@ import gradio as gr
 
 from image_bandit.feature_store import DINOV2_MODEL, FEATURE_DIM, FeatureStore
 from image_bandit.linucb import LinUCBUser
+from image_bandit.manual_inference import (
+    ContentFeatureStore,
+    run_manual_inference,
+)
 from image_bandit.preference_profile import load_preference_profile
 from image_bandit.recommender import BanditRecommender
 
 DEFAULT_IMAGES_DIR = "images"
+DEFAULT_INPUT_DIR = "input"
 DEFAULT_DATA_DIR = "data/bandit"
 DEFAULT_BATCH_SIZE = 8
+DEFAULT_TOP_N = 5
 
 _ROW_HIDDEN = gr.update(visible=False)
 _ROW_SHOWN = gr.update(visible=True)
@@ -39,16 +45,20 @@ def _stats_line(stats: dict) -> str:
 
 def create_bandit_app(
     images_dir=DEFAULT_IMAGES_DIR,
+    input_dir=DEFAULT_INPUT_DIR,
     data_dir=DEFAULT_DATA_DIR,
     batch_size: int = DEFAULT_BATCH_SIZE,
+    top_n: int = DEFAULT_TOP_N,
     model_name: str = DINOV2_MODEL,
 ) -> gr.Blocks:
     """Build the image preference bandit Blocks application."""
     images_dir = Path(images_dir)
+    input_dir = Path(input_dir)
     data_dir = Path(data_dir)
     profile_path = data_dir / "preference_profile.npz"
 
     store = FeatureStore(data_dir / "features")
+    input_store = ContentFeatureStore(data_dir / "input_features")
     profile = load_preference_profile(profile_path, expected_dim=FEATURE_DIM)
     if profile is None:
         profile = LinUCBUser(FEATURE_DIM)
@@ -126,6 +136,50 @@ def create_bandit_app(
             *pair_outputs(pair),
         )
 
+    def _top5_lines(top5: list) -> str:
+        lines = ["**Top 5 scores:**"]
+        for rank, (name, score) in enumerate(top5, 1):
+            lines.append(f"{rank}. `{name}` — {score:.4f}")
+        return "\n".join(lines)
+
+    def _no_images_inference() -> tuple:
+        return (
+            f"❌ No images found in `{input_dir}/`. Add images and click Run.",
+            gr.update(value=None),
+            gr.update(value=""),
+            gr.update(value=""),
+        )
+
+    def run_inference():
+        yield (
+            f"⏳ Scanning `{input_dir}/` and computing dense features…",
+            gr.update(value=None),
+            gr.update(value=""),
+            gr.update(value=""),
+        )
+        result = run_manual_inference(input_dir, input_store, profile, top_n=top_n)
+        if result is None:
+            yield _no_images_inference()
+            return
+        stats = result.stats
+        line = (
+            f"🔍 Scanned {stats.scanned} images · {stats.new} new · "
+            f"{stats.cached} cached"
+        )
+        if stats.errors:
+            line += f" · ⚠️ {stats.errors} errors"
+        yield (
+            line,
+            gr.update(value=str(result.top_path)),
+            gr.update(
+                value=(
+                    f"🏆 **Top image:** `{result.top_path.name}`  \n"
+                    f"**Score:** {result.top_score:.4f}"
+                )
+            ),
+            gr.update(value=_top5_lines(result.top5)),
+        )
+
     with gr.Blocks(title="Image Preference Bandit") as demo:
         gr.Markdown("# 🖼️ DINOv2 Image Preference Bandit")
         gr.Markdown(
@@ -155,11 +209,30 @@ def create_bandit_app(
             f"Batch size: {batch_size}"
         )
 
+        gr.Markdown("---")
+        gr.Markdown("## 🔍 Manual Inference")
+        gr.Markdown(
+            f"Scores every image in `{input_dir}/` with the current preference "
+            "profile and shows the top image with its score, plus the top-5 "
+            "scores. This only reads the profile - it never updates it, so it "
+            "does not interfere with the bandit loop."
+        )
+        infer_status_md = gr.Markdown("Starting…")
+        infer_btn = gr.Button("🔍 Run manual inference")
+        with gr.Row():
+            top_image = gr.Image(label="Top image", value=None, visible=True)
+            with gr.Column():
+                top_score_md = gr.Markdown("")
+                top5_md = gr.Markdown("")
+
         outputs = [status_md, pair_row, img_left, img_right, btn_left, btn_right]
+        infer_outputs = [infer_status_md, top_image, top_score_md, top5_md]
         demo.load(setup, outputs=outputs)
+        demo.load(run_inference, outputs=infer_outputs)
         btn_left.click(lambda: on_choice("left"), outputs=outputs)
         btn_right.click(lambda: on_choice("right"), outputs=outputs)
         scan_btn.click(on_rescan, outputs=outputs)
+        infer_btn.click(run_inference, outputs=infer_outputs)
 
     return demo
 
@@ -167,6 +240,8 @@ def create_bandit_app(
 __all__ = [
     "create_bandit_app",
     "DEFAULT_IMAGES_DIR",
+    "DEFAULT_INPUT_DIR",
     "DEFAULT_DATA_DIR",
     "DEFAULT_BATCH_SIZE",
+    "DEFAULT_TOP_N",
 ]
