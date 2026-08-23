@@ -112,9 +112,9 @@ class BanditRecommender:
         the next-highest-scoring image from the batch (a fresh batch is drawn
         if the current one is exhausted). No preference update is applied.
 
-        Returns ``{"deleted", "kept", "replacement"}``; ``replacement`` is
-        ``None`` (and the pending pair is cleared) when no other image is
-        available.
+        Returns ``{"deleted", "deleted_name", "kept", "replacement"}``;
+        ``replacement`` is ``None`` (and the pending pair is cleared) when no
+        other image is available.
         """
         if self._current_pair is None:
             raise RuntimeError("No pending pair to delete from")
@@ -123,6 +123,8 @@ class BanditRecommender:
         pair = self._current_pair
         deleted_key = pair.left_key if side == "left" else pair.right_key
         kept_key = pair.right_key if side == "left" else pair.left_key
+        # Captured before removal, since the key is gone from the store after.
+        deleted_name = self.display_name(deleted_key)
 
         self.path_for(deleted_key).unlink(missing_ok=True)
         self.store.remove(deleted_key)
@@ -134,7 +136,12 @@ class BanditRecommender:
         self._batch = [k for k in self._batch if k != kept_key]
         if not self._batch:
             self._current_pair = None
-            return {"deleted": deleted_key, "kept": kept_key, "replacement": None}
+            return {
+                "deleted": deleted_key,
+                "deleted_name": deleted_name,
+                "kept": kept_key,
+                "replacement": None,
+            }
 
         vectors = np.stack([self.store.feature(k) for k in self._batch])
         scores = self.profile.score_images(vectors)
@@ -144,7 +151,12 @@ class BanditRecommender:
             self._current_pair = Pair(replacement, kept_key)
         else:
             self._current_pair = Pair(kept_key, replacement)
-        return {"deleted": deleted_key, "kept": kept_key, "replacement": replacement}
+        return {
+            "deleted": deleted_key,
+            "deleted_name": deleted_name,
+            "kept": kept_key,
+            "replacement": replacement,
+        }
 
     def path_for(self, key: str) -> Path:
         return self.images_dir / self.store.rel_path(key)

@@ -81,7 +81,11 @@ def extract_dense_features(image, backbone: tuple | None = None) -> np.ndarray:
     mid_features = hidden_states[7].mean(dim=1)
     late_features = hidden_states[11].mean(dim=1)
     combined = torch.cat([early_features, mid_features, late_features], dim=1)
-    return combined.squeeze().cpu().numpy().astype(np.float32)
+    vector = combined.squeeze().cpu().numpy().astype(np.float32)
+    norm = np.linalg.norm(vector)
+    if norm > 0:
+        vector = vector/norm
+    return vector
 
 
 class FeatureStore:

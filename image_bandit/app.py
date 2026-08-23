@@ -158,7 +158,7 @@ def create_bandit_app(
             )
         result = recommender.delete_image(side)
         pair = recommender._current_pair
-        deleted = f"🗑️ Deleted: {recommender.display_name(result['deleted'])}"
+        deleted = f"🗑️ Deleted: {result['deleted_name']}"
         if pair is None:
             return no_pair_message(
                 f"{deleted}\n\n⏸ No more candidates to show. Add images to "

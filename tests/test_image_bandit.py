@@ -446,6 +446,7 @@ class TestBanditRecommender:
         result = rec.delete_image("left")
         assert result == {
             "deleted": "img_0.png",
+            "deleted_name": "img_0.png",
             "kept": "img_1.png",
             "replacement": "img_7.png",
         }
