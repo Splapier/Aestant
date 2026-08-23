@@ -6,6 +6,7 @@ A DINOv2 + LinUCB **image preference learning** system. A Gradio app scores imag
 
 - **Dense feature extraction** — 1152-d DINOv2 (`facebook/dinov2-small`) vectors, mean-pooled from transformer layers 3/7/11 and L2-normalized
 - **Content-fingerprinted feature cache** — images are keyed by relative path and SHA-256, so already-processed images are never re-extracted (cache in `data/bandit/features/`)
+- **GIF support** — animated images (`.gif`) are represented by their most detailed frame, so blank or transition frames do not dominate the features
 - **LinUCB bandit** — closed-form linear preference model (A, b) updated online, no backpropagation; profile persisted to `data/bandit/preference_profile.npz` and reloaded on restart
 - **Interactive preference loop** — pick a winner, skip a pair, or delete an image (removed from disk, slot refilled from the batch)
 - **Manual inference** — score every image in `input/` with the learned profile and show the top image + top-5 scores; only reads the profile, never updates it
@@ -68,7 +69,7 @@ python bandit_app.py
 
 The app launches at `http://127.0.0.1:7861`.
 
-Put your images (`.jpg`, `.jpeg`, `.png`, `.bmp`, `.webp`, top level of the directory) in `images/`, then:
+Put your images (`.jpg`, `.jpeg`, `.png`, `.bmp`, `.webp`, `.gif`, top level of the directory) in `images/`, then:
 
 1. On load, the app scans `images/` and computes dense features for any new/changed images (cached ones are skipped).
 2. A random batch (default 8) is drawn and scored with the LinUCB profile; the **top-2 candidates** are shown.
@@ -127,6 +128,7 @@ Notes:
 
 - `duplicates_reviewer.py` requires a display (tkinter) and persists ignored groups in `whitelist_duplicates.json`.
 - The delete tools remove files for real — use `--dry-run` (where supported) or `duplicates_finder.py` + the reviewer first.
+- Animated GIFs are hashed (and shown in the reviewer) using their most detailed frame — the same frame the bandit app uses for features.
 
 ## Development
 

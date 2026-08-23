@@ -20,12 +20,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 from image_bandit.feature_store import (
     FEATURE_DIM,
     extract_dense_features,
     file_fingerprint,
+    load_best_frame,
     scan_image_directory,
 )
 from image_bandit.linucb import LinUCBUser
@@ -149,7 +149,7 @@ class ContentFeatureStore:
                 continue
             result.new += 1
             try:
-                img = Image.open(path).convert("RGB")
+                img = load_best_frame(path)
                 self._features[digest] = np.asarray(extract(img), dtype=np.float32)
             except Exception:
                 result.errors += 1

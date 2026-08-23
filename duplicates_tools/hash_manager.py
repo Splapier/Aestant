@@ -9,6 +9,7 @@ try:
     from PIL import Image
     import imagehash
     import numpy as np
+    from image_bandit.feature_store import pick_best_frame
 except ImportError as e:
     print("[-] Missing required libraries.")
     raise e
@@ -25,6 +26,11 @@ def _compute_single_hash(path):
     try:
         # Open image
         image = Image.open(path)
+
+        # Animated images (e.g. GIFs): hash the most detailed frame so a
+        # blank/transition frame does not dominate the representation.
+        if getattr(image, 'n_frames', 1) > 1:
+            image = pick_best_frame(image)
 
         # FIX: Handle "Palette images with Transparency" warning
         # Convert P/LA/PA modes with transparency to RGBA first

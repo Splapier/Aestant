@@ -14,6 +14,8 @@ from image_bandit.feature_store import (
     IMAGE_EXTENSIONS,
     FeatureStore,
     extract_dense_features,
+    load_best_frame,
+    pick_best_frame,
     scan_image_directory,
 )
 from image_bandit.linucb import LinUCBUser

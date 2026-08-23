@@ -16,6 +16,8 @@ from PIL import Image
 from image_bandit.feature_store import (
     FEATURE_DIM,
     FeatureStore,
+    load_best_frame,
+    pick_best_frame,
     scan_image_directory,
 )
 from image_bandit.linucb import LinUCBUser
@@ -59,6 +61,23 @@ def make_extractor(dim=DIM):
 
 def write_image(path, color):
     Image.new("RGB", (8, 8), color).save(path)
+
+
+def make_checkerboard(size=16, cell=2):
+    """Return an RGB image of a black/white checkerboard (high detail)."""
+    arr = np.zeros((size, size, 3), dtype=np.uint8)
+    for y in range(size):
+        for x in range(size):
+            if (x // cell + y // cell) % 2 == 0:
+                arr[y, x] = 255
+    return Image.fromarray(arr)
+
+
+def write_gif(path, frames):
+    """Save a list of same-size RGB frames as an animated GIF."""
+    frames[0].save(
+        path, save_all=True, append_images=frames[1:], duration=100, loop=0
+    )
 
 
 def write_future_mtime(path):
@@ -112,6 +131,69 @@ class TestScanImageDirectory:
         write_image(tmp_path / "a.jpg", (1, 1, 1))
         names = [p.name for p in scan_image_directory(tmp_path)]
         assert names == ["a.jpg", "b.png"]
+
+    def test_includes_gif(self, tmp_path):
+        write_image(tmp_path / "a.gif", (1, 2, 3))
+        names = [p.name for p in scan_image_directory(tmp_path)]
+        assert names == ["a.gif"]
+
+
+class TestBestFrame:
+    def test_static_image_returns_rgb_copy(self, tmp_path):
+        path = tmp_path / "a.png"
+        write_image(path, (10, 20, 30))
+        img = load_best_frame(path)
+        assert img.mode == "RGB"
+        assert np.asarray(img).reshape(-1, 3)[0].tolist() == [10, 20, 30]
+
+    def test_single_frame_gif_returns_that_frame(self, tmp_path):
+        path = tmp_path / "a.gif"
+        write_gif(path, [Image.new("RGB", (8, 8), (9, 8, 7))])
+        img = load_best_frame(path)
+        assert img.mode == "RGB"
+        assert np.asarray(img).reshape(-1, 3)[0].tolist() == [9, 8, 7]
+
+    def test_picks_most_detailed_frame(self, tmp_path):
+        plain = Image.new("RGB", (16, 16), (120, 120, 120))
+        detail = make_checkerboard()
+        path = tmp_path / "a.gif"
+        write_gif(path, [plain, detail, plain])
+        with Image.open(path) as img:
+            best = pick_best_frame(img)
+        arr = np.asarray(best)
+        # The checkerboard frame contains both near-black and near-white
+        # pixels; the plain gray frames do not.
+        assert arr.min() < 50
+        assert arr.max() > 200
+
+    def test_picks_detailed_last_frame(self, tmp_path):
+        plain = Image.new("RGB", (16, 16), (120, 120, 120))
+        detail = make_checkerboard()
+        path = tmp_path / "a.gif"
+        write_gif(path, [plain, plain, detail])
+        with Image.open(path) as img:
+            best = pick_best_frame(img)
+        arr = np.asarray(best)
+        assert arr.min() < 50
+        assert arr.max() > 200
+
+    def test_long_animation_finds_detailed_frame_at_end(self, tmp_path):
+        # More frames than MAX_SAMPLED_FRAMES: the detailed frame sits at the
+        # last index, which the even sampling always includes. Filler frames
+        # vary slightly so the GIF encoder keeps all of them.
+        detail = make_checkerboard()
+        frames = [
+            Image.new("RGB", (16, 16), (110 + (i % 8), 120, 120))
+            for i in range(199)
+        ] + [detail]
+        path = tmp_path / "long.gif"
+        write_gif(path, frames)
+        with Image.open(path) as img:
+            assert img.n_frames == 200
+            best = pick_best_frame(img)
+        arr = np.asarray(best)
+        assert arr.min() < 50
+        assert arr.max() > 200
 
 
 class TestFeatureStore:
@@ -179,6 +261,26 @@ class TestFeatureStore:
         stats = store.ensure_features(images_dir)
         assert stats["errors"] == 1
         assert "corrupt.png" not in store.keys
+
+    def test_gif_features_use_best_frame(self, tmp_path):
+        d = tmp_path / "images"
+        d.mkdir()
+        # Frame 0 is flat red; frame 1 is a half-white/half-black
+        # checkerboard (the most detailed frame).
+        write_gif(
+            d / "anim.gif",
+            [Image.new("RGB", (16, 16), (255, 0, 0)), make_checkerboard()],
+        )
+        store = FeatureStore(tmp_path / "store", extractor=make_extractor())
+        stats = store.ensure_features(d)
+        assert stats["new"] == 1
+        assert stats["errors"] == 0
+        feat = store.feature("anim.gif")
+        # The checkerboard's channel means are ~0.5 on every channel, while
+        # the red first frame would give (1.0, 0.0, 0.0).
+        assert feat[0] == pytest.approx(0.5, abs=0.05)
+        assert feat[1] == pytest.approx(0.5, abs=0.05)
+        assert feat[2] == pytest.approx(0.5, abs=0.05)
 
     def test_missing_images_dir(self, tmp_path):
         store = FeatureStore(tmp_path / "store", extractor=make_extractor())

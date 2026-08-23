@@ -2,6 +2,7 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
+from image_bandit.feature_store import pick_best_frame
 import json
 import os
 import shutil
@@ -187,7 +188,7 @@ class DuplicateReviewerApp:
             del_btn.pack(anchor="w", pady=5)
 
             try:
-                img = Image.open(img_path)
+                img = pick_best_frame(Image.open(img_path))
                 img.thumbnail(THUMBNAIL_SIZE)
                 photo = ImageTk.PhotoImage(img)
 

@@ -3,7 +3,8 @@
 Extracts DINOv2 multi-layer dense features (as in dino.py) from every image
 in the images directory and caches them in a compressed numpy archive. A JSON
 index maps each feature vector to its source image and stores a content
-fingerprint, so already-processed images are never re-extracted.
+fingerprint, so already-processed images are never re-extracted. Animated
+images (e.g. GIFs) are represented by their most detailed frame.
 """
 
 import hashlib
@@ -15,7 +16,11 @@ from PIL import Image
 
 DINOV2_MODEL = "facebook/dinov2-small"
 FEATURE_DIM = 1152  # 3 tapped layers (3, 7, 11) x 384 (dinov2-small hidden size)
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif"}
+
+# Animated images are represented by a single frame; long animations have at
+# most this many frames sampled (evenly) when choosing the best one.
+MAX_SAMPLED_FRAMES = 64
 
 FEATURES_FILE = "dense_features.npz"
 INDEX_FILE = "feature_index.json"
@@ -42,6 +47,49 @@ def file_fingerprint(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             sha.update(chunk)
     return sha.hexdigest()
+
+
+def _frame_detail(frame: Image.Image) -> float:
+    """Return the gradient energy of a small grayscale version of a frame.
+
+    Higher values mean more visual detail (edges, texture), so the frame with
+    the highest score is the most informative one to represent an animation.
+    """
+    g = np.asarray(frame.convert("L").resize((32, 32)), dtype=np.float32)
+    dy = np.diff(g, axis=0)
+    dx = np.diff(g, axis=1)
+    return float(np.sum(dy * dy) + np.sum(dx * dx))
+
+
+def pick_best_frame(img: Image.Image) -> Image.Image:
+    """Return a single RGB frame representing an (possibly animated) image.
+
+    Static images are converted to RGB and returned as-is. Animated images
+    (e.g. GIFs) yield the frame with the most visual detail, so blank or
+    transition frames do not dominate the image's representation.
+    """
+    n_frames = getattr(img, "n_frames", 1)
+    if n_frames <= 1:
+        return img.convert("RGB")
+    if n_frames <= MAX_SAMPLED_FRAMES:
+        indices = range(n_frames)
+    else:
+        indices = np.linspace(0, n_frames - 1, MAX_SAMPLED_FRAMES).round().astype(int)
+    best = None
+    best_energy = -1.0
+    for i in indices:
+        img.seek(int(i))
+        frame = img.convert("RGB")
+        energy = _frame_detail(frame)
+        if energy > best_energy:
+            best_energy = energy
+            best = frame
+    return best
+
+
+def load_best_frame(path) -> Image.Image:
+    """Open an image file and return its best frame (see pick_best_frame)."""
+    return pick_best_frame(Image.open(path))
 
 
 def get_backbone(model_name: str = DINOV2_MODEL) -> tuple:
@@ -217,7 +265,7 @@ class FeatureStore:
             else:
                 stats["reprocessed"] += 1
             try:
-                img = Image.open(path).convert("RGB")
+                img = load_best_frame(path)
                 self._features[key] = np.asarray(extract(img), dtype=np.float32)
             except Exception:
                 stats["errors"] += 1

@@ -63,6 +63,23 @@ def write_image(path, color):
     Image.new("RGB", (8, 8), color).save(path)
 
 
+def make_checkerboard(size=16, cell=2):
+    """Return an RGB image of a black/white checkerboard (high detail)."""
+    arr = np.zeros((size, size, 3), dtype=np.uint8)
+    for y in range(size):
+        for x in range(size):
+            if (x // cell + y // cell) % 2 == 0:
+                arr[y, x] = 255
+    return Image.fromarray(arr)
+
+
+def write_gif(path, frames):
+    """Save a list of same-size RGB frames as an animated GIF."""
+    frames[0].save(
+        path, save_all=True, append_images=frames[1:], duration=100, loop=0
+    )
+
+
 @pytest.fixture
 def input_dir(tmp_path):
     d = tmp_path / "input"
@@ -149,6 +166,27 @@ class TestContentFeatureStore:
         result = store.ensure_features(tmp_path / "nope")
         assert result.scanned == 0
         assert store.keys == []
+
+    def test_gif_features_use_best_frame(self, tmp_path):
+        d = tmp_path / "input"
+        d.mkdir()
+        # Frame 0 is flat blue; frame 1 is a half-white/half-black
+        # checkerboard (the most detailed frame).
+        write_gif(
+            d / "anim.gif",
+            [Image.new("RGB", (16, 16), (0, 0, 255)), make_checkerboard()],
+        )
+        store = ContentFeatureStore(tmp_path / "store", extractor=make_extractor())
+        result = store.ensure_features(d)
+        assert result.scanned == 1
+        assert result.new == 1
+        assert result.errors == 0
+        feat = store.feature(file_fingerprint(d / "anim.gif"))
+        # The checkerboard's channel means are ~0.5 on every channel, while
+        # the blue first frame would give (0.0, 0.0, 1.0).
+        assert feat[0] == pytest.approx(0.5, abs=0.05)
+        assert feat[1] == pytest.approx(0.5, abs=0.05)
+        assert feat[2] == pytest.approx(0.5, abs=0.05)
 
 
 class TestRunManualInference:
