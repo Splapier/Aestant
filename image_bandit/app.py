@@ -3,7 +3,10 @@
 Shows two candidate images (the top-2 bandit scores from a random batch),
 lets the user pick the one they prefer, updates the LinUCB profile
 (+1.0 / -1.0), saves it, and advances to the next pair until the program is
-shut down or the image pool runs out.
+shut down or the image pool runs out. The user can also skip a pair (the
+next top-2 of the batch is shown) or delete either image (the file is
+removed, the other image stays in place, and a replacement fills the empty
+slot).
 """
 
 from pathlib import Path
@@ -28,8 +31,12 @@ DEFAULT_TOP_N = 5
 _ROW_HIDDEN = gr.update(visible=False)
 _ROW_SHOWN = gr.update(visible=True)
 _CLEAR_IMAGES = (gr.update(value=None), gr.update(value=None))
-_INACTIVE = (gr.update(interactive=False), gr.update(interactive=False))
-_ACTIVE = (gr.update(interactive=True), gr.update(interactive=True))
+_SKIP_HIDDEN = gr.update(visible=False)
+_SKIP_SHOWN = gr.update(visible=True)
+# One slot per action button: prefer left/right, delete left/right, skip.
+_BUTTON_SLOTS = 5
+_INACTIVE = tuple(gr.update(interactive=False) for _ in range(_BUTTON_SLOTS))
+_ACTIVE = tuple(gr.update(interactive=True) for _ in range(_BUTTON_SLOTS))
 
 
 def _stats_line(stats: dict) -> str:
@@ -76,10 +83,11 @@ def create_bandit_app(
             gr.update(value=str(recommender.path_for(pair.left_key))),
             gr.update(value=str(recommender.path_for(pair.right_key))),
             *_ACTIVE,
+            _SKIP_SHOWN,
         )
 
     def no_pair_message(reason: str) -> tuple:
-        return (reason, _ROW_HIDDEN, *_CLEAR_IMAGES, *_INACTIVE)
+        return (reason, _ROW_HIDDEN, *_CLEAR_IMAGES, *_INACTIVE, _SKIP_HIDDEN)
 
     def setup():
         yield (
@@ -119,6 +127,45 @@ def create_bandit_app(
             f"🏆 Winner: {recommender.display_name(result['winner'])} · "
             f"❌ Loser: {recommender.display_name(result['loser'])}\n\n"
             f"{recommender.status()}",
+            *pair_outputs(pair),
+        )
+
+    def on_skip() -> tuple:
+        if recommender._current_pair is None:
+            return no_pair_message(
+                "⚠️ No pending pair. Click Scan for new images."
+            )
+        result = recommender.skip()
+        pair = recommender.next_pair()
+        skipped = (
+            f"⏭️ Skipped: {recommender.display_name(result['left'])} vs "
+            f"{recommender.display_name(result['right'])}"
+        )
+        if pair is None:
+            return no_pair_message(
+                f"{skipped}\n\n⏸ No more candidates to show. Add images to "
+                f"the directory and click Scan.\n\n{recommender.status()}"
+            )
+        return (
+            f"{skipped}\n\n{recommender.status()}",
+            *pair_outputs(pair),
+        )
+
+    def on_delete(side: str) -> tuple:
+        if recommender._current_pair is None:
+            return no_pair_message(
+                "⚠️ No pending pair. Click Scan for new images."
+            )
+        result = recommender.delete_image(side)
+        pair = recommender._current_pair
+        deleted = f"🗑️ Deleted: {recommender.display_name(result['deleted'])}"
+        if pair is None:
+            return no_pair_message(
+                f"{deleted}\n\n⏸ No more candidates to show. Add images to "
+                f"the directory and click Scan.\n\n{recommender.status()}"
+            )
+        return (
+            f"{deleted}\n\n{recommender.status()}",
             *pair_outputs(pair),
         )
 
@@ -185,7 +232,10 @@ def create_bandit_app(
         gr.Markdown(
             "Two candidate images are scored with LinUCB. Pick the one you "
             "prefer — the bandit updates your preference profile (+1.0 / "
-            "-1.0) and saves it after every choice."
+            "-1.0) and saves it after every choice. You can also skip a pair "
+            "(the next two from the batch are shown) or delete an image (it "
+            "is removed from disk, its slot is refilled, and the other image "
+            "stays in place)."
         )
         status_md = gr.Markdown("Starting…")
 
@@ -196,12 +246,19 @@ def create_bandit_app(
                 btn_left = gr.Button(
                     "👈 I prefer this image", variant="primary", interactive=False
                 )
+                del_left = gr.Button(
+                    "🗑️ Delete this image", variant="secondary", interactive=False
+                )
             with gr.Column():
                 img_right = gr.Image(label="Candidate B", value=None, visible=True)
                 btn_right = gr.Button(
                     "I prefer this image 👉", variant="primary", interactive=False
                 )
+                del_right = gr.Button(
+                    "🗑️ Delete this image", variant="secondary", interactive=False
+                )
 
+        skip_btn = gr.Button("⏭️ Skip this pair", visible=False)
         scan_btn = gr.Button("🔄 Scan for new images")
 
         gr.Markdown(
@@ -225,12 +282,25 @@ def create_bandit_app(
                 top_score_md = gr.Markdown("")
                 top5_md = gr.Markdown("")
 
-        outputs = [status_md, pair_row, img_left, img_right, btn_left, btn_right]
+        outputs = [
+            status_md,
+            pair_row,
+            img_left,
+            img_right,
+            btn_left,
+            btn_right,
+            del_left,
+            del_right,
+            skip_btn,
+        ]
         infer_outputs = [infer_status_md, top_image, top_score_md, top5_md]
         demo.load(setup, outputs=outputs)
         demo.load(run_inference, outputs=infer_outputs)
         btn_left.click(lambda: on_choice("left"), outputs=outputs)
         btn_right.click(lambda: on_choice("right"), outputs=outputs)
+        del_left.click(lambda: on_delete("left"), outputs=outputs)
+        del_right.click(lambda: on_delete("right"), outputs=outputs)
+        skip_btn.click(on_skip, outputs=outputs)
         scan_btn.click(on_rescan, outputs=outputs)
         infer_btn.click(run_inference, outputs=infer_outputs)
 

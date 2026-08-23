@@ -135,6 +135,17 @@ class FeatureStore:
     def rel_path(self, key: str) -> str:
         return self._index[key]["rel"]
 
+    def remove(self, key: str) -> None:
+        """Drop a key from the store and persist the change.
+
+        Removing a key that is not present is a no-op.
+        """
+        self._features.pop(key, None)
+        self._index.pop(key, None)
+        if key in self._keys:
+            self._keys.remove(key)
+        self.save()
+
     def random_batch(
         self, batch_size: int, rng: np.random.Generator | None = None
     ) -> list[str]:

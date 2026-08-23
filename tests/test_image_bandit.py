@@ -202,6 +202,23 @@ class TestFeatureStore:
         store = FeatureStore(tmp_path / "store", extractor=make_extractor())
         assert store.random_batch(5) == []
 
+    def test_remove_drops_key_and_persists(self, tmp_path, images_dir):
+        store = FeatureStore(tmp_path / "store", extractor=make_extractor())
+        store.ensure_features(images_dir)
+        store.remove("img_5.png")
+        assert "img_5.png" not in store.keys
+        assert len(store.keys) == 7
+
+        reloaded = FeatureStore(tmp_path / "store")
+        assert "img_5.png" not in reloaded.keys
+        assert len(reloaded.keys) == 7
+
+    def test_remove_missing_key_is_noop(self, tmp_path, images_dir):
+        store = FeatureStore(tmp_path / "store", extractor=make_extractor())
+        store.ensure_features(images_dir)
+        store.remove("nope.png")
+        assert len(store.keys) == 8
+
 
 class TestLinUCBUser:
     def test_initial_score_is_alpha_times_norm(self):
@@ -386,6 +403,126 @@ class TestBanditRecommender:
         seeded_recommender.next_pair()
         with pytest.raises(ValueError):
             seeded_recommender.choose("middle")
+
+    def test_skip_returns_pair_and_clears_pending(self, seeded_recommender):
+        rec = seeded_recommender
+        pair = rec.next_pair()
+        result = rec.skip()
+        assert result == {"left": pair.left_key, "right": pair.right_key}
+        assert rec._current_pair is None
+        assert rec.skipped_pairs == 1
+        assert rec.profile.updates == 0
+
+    def test_skip_advances_to_next_pair(self, seeded_recommender):
+        rec = seeded_recommender
+        pair1 = rec.next_pair()
+        assert (pair1.left_key, pair1.right_key) == ("img_0.png", "img_1.png")
+
+        rec.skip()
+        pair2 = rec.next_pair()
+        assert (pair2.left_key, pair2.right_key) == ("img_7.png", "img_5.png")
+
+    def test_skipped_images_are_not_shown_again(self, seeded_recommender):
+        rec = seeded_recommender
+        rec.next_pair()
+        rec.skip()
+        shown = []
+        for _ in range(3):
+            pair = rec.next_pair()
+            shown.extend([pair.left_key, pair.right_key])
+        assert "img_0.png" not in shown
+        assert "img_1.png" not in shown
+        assert len(set(shown)) == 6
+
+    def test_skip_without_pair_raises(self, seeded_recommender):
+        with pytest.raises(RuntimeError):
+            seeded_recommender.skip()
+
+    def test_delete_left_refills_left_slot(self, seeded_recommender, images_dir):
+        rec = seeded_recommender
+        pair1 = rec.next_pair()
+        assert (pair1.left_key, pair1.right_key) == ("img_0.png", "img_1.png")
+
+        result = rec.delete_image("left")
+        assert result == {
+            "deleted": "img_0.png",
+            "kept": "img_1.png",
+            "replacement": "img_7.png",
+        }
+        assert not (images_dir / "img_0.png").exists()
+        assert (images_dir / "img_1.png").exists()
+        assert "img_0.png" not in rec.store.keys
+        # The kept image stays on the right; the replacement takes the left.
+        assert (rec._current_pair.left_key, rec._current_pair.right_key) == (
+            "img_7.png",
+            "img_1.png",
+        )
+        assert rec.profile.updates == 0
+        assert rec.deleted_images == 1
+
+    def test_delete_right_keeps_left_in_place(self, seeded_recommender, images_dir):
+        rec = seeded_recommender
+        pair1 = rec.next_pair()
+        assert (pair1.left_key, pair1.right_key) == ("img_0.png", "img_1.png")
+
+        result = rec.delete_image("right")
+        assert result["deleted"] == "img_1.png"
+        assert result["kept"] == "img_0.png"
+        assert not (images_dir / "img_1.png").exists()
+        assert "img_1.png" not in rec.store.keys
+        assert (rec._current_pair.left_key, rec._current_pair.right_key) == (
+            "img_0.png",
+            result["replacement"],
+        )
+        assert rec._current_pair.right_key != "img_0.png"
+
+    def test_delete_draws_fresh_batch_when_exhausted(
+        self, tmp_path, images_dir, seeded_store
+    ):
+        store, _ = seeded_store
+        profile = LinUCBUser(DIM)
+        rec = BanditRecommender(
+            store, profile, images_dir, batch_size=4, rng=np.random.default_rng(7)
+        )
+        rec.next_pair()
+        rec.next_pair()
+        assert len(rec._batch) == 0
+        pair = rec._current_pair
+
+        result = rec.delete_image("left")
+        assert result["replacement"] is not None
+        assert result["replacement"] != pair.right_key
+        assert rec._current_pair is not None
+        assert rec._current_pair.right_key == pair.right_key
+        assert profile.updates == 0
+
+    def test_delete_with_no_candidates_clears_pair(self, tmp_path):
+        d = tmp_path / "two"
+        d.mkdir()
+        write_image(d / "a.png", (250, 30, 10))
+        write_image(d / "b.png", (20, 240, 10))
+        store = FeatureStore(tmp_path / "store", extractor=make_extractor())
+        store.ensure_features(d)
+        rec = BanditRecommender(
+            store, LinUCBUser(DIM), d, batch_size=8, rng=np.random.default_rng(7)
+        )
+        pair = rec.next_pair()
+        assert pair is not None
+
+        result = rec.delete_image("left")
+        assert result["replacement"] is None
+        assert rec._current_pair is None
+        assert not (d / pair.left_key).exists()
+        assert (d / pair.right_key).exists()
+
+    def test_delete_without_pair_raises(self, seeded_recommender):
+        with pytest.raises(RuntimeError):
+            seeded_recommender.delete_image("left")
+
+    def test_delete_bad_side_raises(self, seeded_recommender):
+        seeded_recommender.next_pair()
+        with pytest.raises(ValueError):
+            seeded_recommender.delete_image("middle")
 
     def test_path_for_and_display_name(self, seeded_recommender, images_dir):
         rec = seeded_recommender

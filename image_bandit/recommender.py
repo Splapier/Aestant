@@ -5,6 +5,11 @@ batch and the two highest-scoring images are shown to the user. The user's
 choice updates the LinUCB profile (+1.0 winner / -1.0 loser), the profile is
 saved to disk, and the next pair is drawn from the same batch until it is
 exhausted - at which point a fresh random batch is retrieved.
+
+The user can also skip a pair (both images are discarded from the batch and
+the next top-2 is shown) or delete one of the two images (the file is removed
+from disk and the store, the other image stays in place, and the empty slot
+is filled with the next-highest-scoring image from the batch).
 """
 
 from dataclasses import dataclass
@@ -47,6 +52,8 @@ class BanditRecommender:
         self._batch: list[str] = []
         self._current_pair: Pair | None = None
         self.shown_pairs = 0
+        self.skipped_pairs = 0
+        self.deleted_images = 0
 
     def _draw_batch(self) -> None:
         self._batch = self.store.random_batch(self.batch_size, self.rng)
@@ -86,6 +93,59 @@ class BanditRecommender:
         self.shown_pairs += 1
         return {"winner": winner_key, "loser": loser_key}
 
+    def skip(self) -> dict:
+        """Discard the current pair (no preference update) so the next
+        top-2 of the batch can be shown."""
+        if self._current_pair is None:
+            raise RuntimeError("No pending pair to skip")
+        result = {
+            "left": self._current_pair.left_key,
+            "right": self._current_pair.right_key,
+        }
+        self._current_pair = None
+        self.skipped_pairs += 1
+        return result
+
+    def delete_image(self, side: str) -> dict:
+        """Delete one image of the current pair from disk and the feature
+        store. The other image stays in place; the empty slot is filled with
+        the next-highest-scoring image from the batch (a fresh batch is drawn
+        if the current one is exhausted). No preference update is applied.
+
+        Returns ``{"deleted", "kept", "replacement"}``; ``replacement`` is
+        ``None`` (and the pending pair is cleared) when no other image is
+        available.
+        """
+        if self._current_pair is None:
+            raise RuntimeError("No pending pair to delete from")
+        if side not in ("left", "right"):
+            raise ValueError(f"side must be 'left' or 'right', got {side!r}")
+        pair = self._current_pair
+        deleted_key = pair.left_key if side == "left" else pair.right_key
+        kept_key = pair.right_key if side == "left" else pair.left_key
+
+        self.path_for(deleted_key).unlink(missing_ok=True)
+        self.store.remove(deleted_key)
+        self.deleted_images += 1
+
+        if len(self._batch) < 1:
+            self._draw_batch()
+        # The kept image is already on screen, so it is never a candidate.
+        self._batch = [k for k in self._batch if k != kept_key]
+        if not self._batch:
+            self._current_pair = None
+            return {"deleted": deleted_key, "kept": kept_key, "replacement": None}
+
+        vectors = np.stack([self.store.feature(k) for k in self._batch])
+        scores = self.profile.score_images(vectors)
+        replacement = self._batch[int(np.argmax(scores))]
+        self._batch.remove(replacement)
+        if side == "left":
+            self._current_pair = Pair(replacement, kept_key)
+        else:
+            self._current_pair = Pair(kept_key, replacement)
+        return {"deleted": deleted_key, "kept": kept_key, "replacement": replacement}
+
     def path_for(self, key: str) -> Path:
         return self.images_dir / self.store.rel_path(key)
 
@@ -96,5 +156,7 @@ class BanditRecommender:
         return (
             f"Batch remaining: {len(self._batch)} · "
             f"Pairs shown: {self.shown_pairs} · "
+            f"Skipped: {self.skipped_pairs} · "
+            f"Deleted: {self.deleted_images} · "
             f"Preference updates: {self.profile.updates}"
         )
